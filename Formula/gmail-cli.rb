@@ -3,7 +3,7 @@
 class GmailCli < Formula
   desc "Command-line interface for Gmail"
   homepage "https://github.com/nitaiaharoni/gmail-cli"
-  url "https://github.com/nitaiaharoni/gmail-cli/archive/refs/tags/v1.0.0.tar.gz"
+  url "https://github.com/nitaiaharoni/gmail-cli/archive/refs/tags/v1.0.3.tar.gz"
   sha256 "" # Update with actual SHA256 after release
   license "MIT"
   head "https://github.com/nitaiaharoni/gmail-cli.git", branch: "main"
