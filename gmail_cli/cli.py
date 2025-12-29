@@ -280,7 +280,7 @@ def labels(ctx, account):
 @cli.command()
 @click.argument("query", required=False)
 @click.option("--max", "-m", default=10, help="Maximum number of results")
-@click.option("--from", "-f", help="Search by sender email or name")
+@click.option("--from", "-f", "from_", help="Search by sender email or name")
 @click.option("--to", "-t", help="Search by recipient email or name")
 @click.option("--subject", "-s", help="Search in subject line")
 @click.option("--has-attachment", is_flag=True, help="Messages with attachments")
