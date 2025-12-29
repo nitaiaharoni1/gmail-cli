@@ -22,11 +22,33 @@ def cli(ctx, account):
 _account_option = click.option("--account", "-a", help="Account name to use (default: current default account)")
 
 
-@cli.command()
-def help():
-    """Show help message."""
-    ctx = click.get_current_context()
-    click.echo(ctx.parent.get_help())
+@cli.command(name="help")
+@click.argument("command", required=False)
+@click.pass_context
+def help_command(ctx, command):
+    """Show help message. Use 'help <command>' for command-specific help."""
+    if command:
+        # Show help for a specific command
+        try:
+            cmd = ctx.parent.command.get_command(ctx.parent, command)
+            if cmd:
+                click.echo(cmd.get_help(ctx))
+            else:
+                click.echo(f"❌ Unknown command: {command}", err=True)
+                click.echo(f"\nAvailable commands:")
+                for name in sorted(ctx.parent.command.list_commands(ctx.parent)):
+                    click.echo(f"  {name}")
+        except Exception:
+            click.echo(f"❌ Unknown command: {command}", err=True)
+            click.echo(f"\nAvailable commands:")
+            for name in sorted(ctx.parent.command.list_commands(ctx.parent)):
+                click.echo(f"  {name}")
+    else:
+        # Show main help
+        if ctx.parent:
+            click.echo(ctx.parent.get_help())
+        else:
+            click.echo(ctx.get_help())
 
 
 @cli.command()
