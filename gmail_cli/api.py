@@ -614,4 +614,55 @@ class GmailAPI:
             return self.create_filter(criteria, action)
         except HttpError as error:
             raise Exception(f"Failed to block sender: {error}")
+    
+    def delete_message(self, message_id):
+        """
+        Permanently delete a message. This cannot be undone!
+        
+        Args:
+            message_id: The message ID to delete
+        """
+        try:
+            (
+                self.service.users()
+                .messages()
+                .delete(userId=self.user_id, id=message_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to delete message: {error}")
+    
+    def trash_message(self, message_id):
+        """
+        Move a message to trash (can be recovered).
+        
+        Args:
+            message_id: The message ID to trash
+        """
+        try:
+            (
+                self.service.users()
+                .messages()
+                .trash(userId=self.user_id, id=message_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to trash message: {error}")
+    
+    def untrash_message(self, message_id):
+        """
+        Remove a message from trash (restore to inbox).
+        
+        Args:
+            message_id: The message ID to untrash
+        """
+        try:
+            (
+                self.service.users()
+                .messages()
+                .untrash(userId=self.user_id, id=message_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to untrash message: {error}")
 

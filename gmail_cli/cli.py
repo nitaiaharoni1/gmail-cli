@@ -825,6 +825,61 @@ def block(ctx, email, account):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("message_id")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+@_account_option
+@click.pass_context
+def delete(ctx, message_id, force, account):
+    """Permanently delete a message (cannot be undone!)."""
+    account = account or ctx.obj.get("ACCOUNT")
+    
+    if not force:
+        if not click.confirm(f"⚠️  Warning: This will permanently delete message {message_id}. This cannot be undone!\n   Do you want to continue?"):
+            click.echo("Deletion cancelled.")
+            return
+    
+    try:
+        api = GmailAPI(account)
+        api.delete_message(message_id)
+        click.echo(f"✅ Message {message_id} permanently deleted")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def trash(ctx, message_id, account):
+    """Move a message to trash (can be recovered)."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.trash_message(message_id)
+        click.echo(f"✅ Message {message_id} moved to trash")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def untrash(ctx, message_id, account):
+    """Remove a message from trash (restore to inbox)."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.untrash_message(message_id)
+        click.echo(f"✅ Message {message_id} restored from trash")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
 
