@@ -982,7 +982,7 @@ def untrash(ctx, message_id, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -999,9 +999,8 @@ def batch_mark_read(ctx, message_ids, query, max, account):
             if not message_ids:
                 click.echo(f"No messages found for query: {query}")
                 return
-        
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, remove_label_ids=["UNREAD"])
@@ -1012,7 +1011,7 @@ def batch_mark_read(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1029,9 +1028,8 @@ def batch_archive(ctx, message_ids, query, max, account):
             if not message_ids:
                 click.echo(f"No messages found for query: {query}")
                 return
-        
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, remove_label_ids=["INBOX"])
@@ -1042,7 +1040,7 @@ def batch_archive(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1059,9 +1057,8 @@ def batch_star(ctx, message_ids, query, max, account):
             if not message_ids:
                 click.echo(f"No messages found for query: {query}")
                 return
-        
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, add_label_ids=["STARRED"])
@@ -1072,7 +1069,7 @@ def batch_star(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1090,8 +1087,8 @@ def batch_unstar(ctx, message_ids, query, max, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, remove_label_ids=["STARRED"])
@@ -1102,7 +1099,7 @@ def batch_unstar(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1120,8 +1117,8 @@ def batch_trash(ctx, message_ids, query, max, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_trash_messages(message_ids)
@@ -1132,7 +1129,7 @@ def batch_trash(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1150,8 +1147,8 @@ def batch_untrash(ctx, message_ids, query, max, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_untrash_messages(message_ids)
@@ -1162,7 +1159,7 @@ def batch_untrash(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
@@ -1182,8 +1179,8 @@ def batch_delete(ctx, message_ids, query, max, force, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         if not force:
@@ -1199,7 +1196,7 @@ def batch_delete(ctx, message_ids, query, max, force, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @click.option("--add-label", multiple=True, help="Label ID to add (can specify multiple)")
@@ -1219,8 +1216,8 @@ def batch_modify(ctx, message_ids, query, max, add_label, remove_label, account)
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         add_label_ids = list(add_label) if add_label else None
@@ -1238,7 +1235,7 @@ def batch_modify(ctx, message_ids, query, max, add_label, remove_label, account)
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1256,8 +1253,8 @@ def batch_spam(ctx, message_ids, query, max, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, add_label_ids=["SPAM"], remove_label_ids=["INBOX"])
@@ -1268,7 +1265,7 @@ def batch_spam(ctx, message_ids, query, max, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=True)
+@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @_account_option
@@ -1286,8 +1283,8 @@ def batch_unspam(ctx, message_ids, query, max, account):
                 click.echo(f"No messages found for query: {query}")
                 return
         
-        if not message_ids:
-            click.echo("❌ Error: No message IDs provided")
+        elif not message_ids:
+            click.echo("❌ Error: Provide message IDs or use --query option")
             sys.exit(1)
         
         result = api.batch_modify_messages(message_ids, remove_label_ids=["SPAM"], add_label_ids=["INBOX"])
