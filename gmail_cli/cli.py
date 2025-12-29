@@ -8,8 +8,8 @@ from .api import GmailAPI
 from .utils import format_email_address, format_date, list_accounts, get_default_account, set_default_account, get_token_path
 
 
-@click.group()
-@click.version_option(version="1.0.1")
+@click.group(context_settings={"allow_interspersed_args": False})
+@click.version_option(version="1.0.6")
 @click.option("--account", "-a", help="Account name to use (default: current default account)")
 @click.pass_context
 def cli(ctx, account):
@@ -131,13 +131,13 @@ def me(ctx, account):
         sys.exit(1)
 
 
-@cli.command()
+@cli.command(name="list")
 @click.option("--label", "-l", help="Filter by label ID")
 @click.option("--max", "-m", default=10, help="Maximum number of messages")
 @click.option("--query", "-q", help="Search query")
 @_account_option
 @click.pass_context
-def list(ctx, label, max, query, account):
+def list_messages(ctx, label, max, query, account):
     """List emails from your mailbox."""
     account = account or ctx.obj.get("ACCOUNT")
     try:
@@ -230,9 +230,10 @@ def read(ctx, message_id, account):
 @click.argument("subject")
 @click.option("--body", "-b", help="Email body text")
 @click.option("--attach", "-a", multiple=True, help="Attachment file path (can specify multiple)")
+@click.option("--cc", "-c", help="CC recipient email address")
 @_account_option
 @click.pass_context
-def send(ctx, to, subject, body, attach, account):
+def send(ctx, to, subject, body, attach, cc, account):
     """Send an email."""
     account = account or ctx.obj.get("ACCOUNT")
     if not body:
@@ -241,7 +242,7 @@ def send(ctx, to, subject, body, attach, account):
     try:
         api = GmailAPI(account)
         attachments = list(attach) if attach else None
-        result = api.send_message(to, subject, body, attachments)
+        result = api.send_message(to, subject, body, attachments, cc)
         click.echo(f"✅ Email sent successfully!")
         click.echo(f"   Message ID: {result.get('id')}")
     except Exception as e:
@@ -875,14 +876,15 @@ def delete_draft(ctx, draft_id, account):
 @click.argument("message_id")
 @click.argument("body")
 @click.option("--reply-all", is_flag=True, help="Reply to all recipients")
+@click.option("--cc", "-c", help="Additional CC recipient email address")
 @_account_option
 @click.pass_context
-def reply(ctx, message_id, body, reply_all, account):
+def reply(ctx, message_id, body, reply_all, cc, account):
     """Reply to a message."""
     account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
-        result = api.reply_to_message(message_id, body, reply_all)
+        result = api.reply_to_message(message_id, body, reply_all, cc)
         click.echo(f"✅ Reply sent successfully!")
         click.echo(f"   Message ID: {result.get('id')}")
     except Exception as e:
