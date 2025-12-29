@@ -198,6 +198,38 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to modify message: {error}")
     
+    def batch_modify_messages(self, message_ids, add_label_ids=None, remove_label_ids=None):
+        """
+        Batch modify multiple messages.
+        
+        Args:
+            message_ids: List of message IDs to modify
+            add_label_ids: List of label IDs to add
+            remove_label_ids: List of label IDs to remove
+        
+        Returns:
+            Dictionary with results
+        """
+        try:
+            if not message_ids:
+                return {"modified": 0, "errors": []}
+            
+            body = {"ids": message_ids}
+            if add_label_ids:
+                body["addLabelIds"] = add_label_ids
+            if remove_label_ids:
+                body["removeLabelIds"] = remove_label_ids
+            
+            result = (
+                self.service.users()
+                .messages()
+                .batchModify(userId=self.user_id, body=body)
+                .execute()
+            )
+            return {"modified": len(message_ids), "errors": []}
+        except HttpError as error:
+            raise Exception(f"Failed to batch modify messages: {error}")
+    
     def mark_as_read(self, message_id):
         """Mark a message as read."""
         return self.modify_message(message_id, remove_label_ids=["UNREAD"])
@@ -665,4 +697,53 @@ class GmailAPI:
             )
         except HttpError as error:
             raise Exception(f"Failed to untrash message: {error}")
+    
+    def batch_trash_messages(self, message_ids):
+        """Batch trash multiple messages (using batchModify with TRASH label)."""
+        try:
+            if not message_ids:
+                return {"trashed": 0, "errors": []}
+            
+            # Use batchModify to add TRASH label and remove INBOX
+            result = self.batch_modify_messages(
+                message_ids,
+                add_label_ids=["TRASH"],
+                remove_label_ids=["INBOX"]
+            )
+            return {"trashed": result["modified"], "errors": result.get("errors", [])}
+        except HttpError as error:
+            raise Exception(f"Failed to batch trash messages: {error}")
+    
+    def batch_untrash_messages(self, message_ids):
+        """Batch untrash multiple messages (using batchModify to remove TRASH label)."""
+        try:
+            if not message_ids:
+                return {"untrashed": 0, "errors": []}
+            
+            # Use batchModify to remove TRASH label and add INBOX back
+            result = self.batch_modify_messages(
+                message_ids,
+                add_label_ids=["INBOX"],
+                remove_label_ids=["TRASH"]
+            )
+            return {"untrashed": result["modified"], "errors": result.get("errors", [])}
+        except HttpError as error:
+            raise Exception(f"Failed to batch untrash messages: {error}")
+    
+    def batch_delete_messages(self, message_ids):
+        """Batch permanently delete multiple messages."""
+        try:
+            if not message_ids:
+                return {"deleted": 0, "errors": []}
+            
+            body = {"ids": message_ids}
+            (
+                self.service.users()
+                .messages()
+                .batchDelete(userId=self.user_id, body=body)
+                .execute()
+            )
+            return {"deleted": len(message_ids), "errors": []}
+        except HttpError as error:
+            raise Exception(f"Failed to batch delete messages: {error}")
 

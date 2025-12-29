@@ -981,6 +981,322 @@ def untrash(ctx, message_id, account):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_mark_read(ctx, message_ids, query, max, account):
+    """Mark multiple messages as read."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, remove_label_ids=["UNREAD"])
+        click.echo(f"✅ Marked {result['modified']} message(s) as read")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_archive(ctx, message_ids, query, max, account):
+    """Archive multiple messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, remove_label_ids=["INBOX"])
+        click.echo(f"✅ Archived {result['modified']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_star(ctx, message_ids, query, max, account):
+    """Star multiple messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, add_label_ids=["STARRED"])
+        click.echo(f"✅ Starred {result['modified']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_unstar(ctx, message_ids, query, max, account):
+    """Unstar multiple messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, remove_label_ids=["STARRED"])
+        click.echo(f"✅ Unstarred {result['modified']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_trash(ctx, message_ids, query, max, account):
+    """Move multiple messages to trash."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_trash_messages(message_ids)
+        click.echo(f"✅ Moved {result['trashed']} message(s) to trash")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_untrash(ctx, message_ids, query, max, account):
+    """Restore multiple messages from trash."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_untrash_messages(message_ids)
+        click.echo(f"✅ Restored {result['untrashed']} message(s) from trash")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+@_account_option
+@click.pass_context
+def batch_delete(ctx, message_ids, query, max, force, account):
+    """Permanently delete multiple messages (cannot be undone!)."""
+    account = account or ctx.obj.get("ACCOUNT")
+    
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        if not force:
+            if not click.confirm(f"⚠️  Warning: This will permanently delete {len(message_ids)} message(s). This cannot be undone!\n   Do you want to continue?"):
+                click.echo("Deletion cancelled.")
+                return
+        
+        result = api.batch_delete_messages(message_ids)
+        click.echo(f"✅ Permanently deleted {result['deleted']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@click.option("--add-label", multiple=True, help="Label ID to add (can specify multiple)")
+@click.option("--remove-label", multiple=True, help="Label ID to remove (can specify multiple)")
+@_account_option
+@click.pass_context
+def batch_modify(ctx, message_ids, query, max, add_label, remove_label, account):
+    """Batch modify labels on multiple messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        add_label_ids = list(add_label) if add_label else None
+        remove_label_ids = list(remove_label) if remove_label else None
+        
+        if not add_label_ids and not remove_label_ids:
+            click.echo("❌ Error: At least one of --add-label or --remove-label is required")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, add_label_ids=add_label_ids, remove_label_ids=remove_label_ids)
+        click.echo(f"✅ Modified {result['modified']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_spam(ctx, message_ids, query, max, account):
+    """Mark multiple messages as spam."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, add_label_ids=["SPAM"], remove_label_ids=["INBOX"])
+        click.echo(f"✅ Marked {result['modified']} message(s) as spam")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_ids", nargs=-1, required=True)
+@click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
+@click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
+@_account_option
+@click.pass_context
+def batch_unspam(ctx, message_ids, query, max, account):
+    """Remove spam label from multiple messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        
+        if query:
+            messages = api.list_messages(max_results=max, query=query)
+            message_ids = [msg["id"] for msg in messages]
+            if not message_ids:
+                click.echo(f"No messages found for query: {query}")
+                return
+        
+        if not message_ids:
+            click.echo("❌ Error: No message IDs provided")
+            sys.exit(1)
+        
+        result = api.batch_modify_messages(message_ids, remove_label_ids=["SPAM"], add_label_ids=["INBOX"])
+        click.echo(f"✅ Removed spam label from {result['modified']} message(s)")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
 
