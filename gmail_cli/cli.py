@@ -1196,14 +1196,14 @@ def batch_delete(ctx, message_ids, query, max, force, account):
 
 
 @cli.command()
-@click.argument("message_ids", nargs=-1, required=False)
 @click.option("--query", "-q", help="Search query - operate on matching messages instead of IDs")
 @click.option("--max", "-m", default=100, help="Maximum number of messages when using --query")
 @click.option("--add-label", multiple=True, help="Label ID to add (can specify multiple)")
 @click.option("--remove-label", multiple=True, help="Label ID to remove (can specify multiple)")
+@click.argument("message_ids", nargs=-1, required=False)
 @_account_option
 @click.pass_context
-def batch_modify(ctx, message_ids, query, max, add_label, remove_label, account):
+def batch_modify(ctx, query, max, add_label, remove_label, message_ids, account):
     """Batch modify labels on multiple messages."""
     account = account or ctx.obj.get("ACCOUNT")
     try:
