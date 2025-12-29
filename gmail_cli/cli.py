@@ -9,7 +9,7 @@ from .utils import format_email_address, format_date, list_accounts, get_default
 
 
 @click.group()
-@click.version_option(version="1.0.0")
+@click.version_option(version="1.0.1")
 @click.option("--account", "-a", help="Account name to use (default: current default account)")
 @click.pass_context
 def cli(ctx, account):
@@ -85,8 +85,10 @@ def use(account_name):
 
 @cli.command()
 @_account_option
-def me(account):
+@click.pass_context
+def me(ctx, account):
     """Show authenticated user information."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         profile = api.get_profile()
