@@ -487,7 +487,7 @@ def filters(ctx, account):
 
 
 @cli.command()
-@click.option("--from", "-f", help="Filter by sender email or name")
+@click.option("--from", "-f", "from_", help="Filter by sender email or name")
 @click.option("--to", "-t", help="Filter by recipient email or name")
 @click.option("--subject", "-s", help="Filter by subject (case-insensitive)")
 @click.option("--query", "-q", help="Gmail search query")
