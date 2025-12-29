@@ -23,6 +23,13 @@ _account_option = click.option("--account", "-a", help="Account name to use (def
 
 
 @cli.command()
+def help():
+    """Show help message."""
+    ctx = click.get_current_context()
+    click.echo(ctx.parent.get_help())
+
+
+@cli.command()
 @click.option("--account", "-a", help="Account name (optional, will use email if not provided)")
 def init(account):
     """Initialize and authenticate with Gmail API."""
