@@ -10,9 +10,12 @@ from .utils import format_email_address, format_date, list_accounts, get_default
 
 @click.group()
 @click.version_option(version="1.0.0")
-def cli():
+@click.option("--account", "-a", help="Account name to use (default: current default account)")
+@click.pass_context
+def cli(ctx, account):
     """Gmail CLI - Command-line interface for Gmail."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["ACCOUNT"] = account
 
 
 # Account option decorator
@@ -102,8 +105,10 @@ def me(account):
 @click.option("--max", "-m", default=10, help="Maximum number of messages")
 @click.option("--query", "-q", help="Search query")
 @_account_option
-def list(label, max, query, account):
+@click.pass_context
+def list(ctx, label, max, query, account):
     """List emails from your mailbox."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         label_ids = [label] if label else None
@@ -143,8 +148,10 @@ def list(label, max, query, account):
 @cli.command()
 @click.argument("message_id")
 @_account_option
-def read(message_id, account):
+@click.pass_context
+def read(ctx, message_id, account):
     """Read full email content."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         message = api.get_message(message_id, format="full")
@@ -193,8 +200,10 @@ def read(message_id, account):
 @click.option("--body", "-b", help="Email body text")
 @click.option("--attach", "-a", multiple=True, help="Attachment file path (can specify multiple)")
 @_account_option
-def send(to, subject, body, attach, account):
+@click.pass_context
+def send(ctx, to, subject, body, attach, account):
     """Send an email."""
+    account = account or ctx.obj.get("ACCOUNT")
     if not body:
         body = click.prompt("Email body", type=str)
     
@@ -211,8 +220,10 @@ def send(to, subject, body, attach, account):
 
 @cli.command()
 @_account_option
-def labels(account):
+@click.pass_context
+def labels(ctx, account):
     """List all labels."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         labels = api.list_labels()
@@ -239,8 +250,10 @@ def labels(account):
 @click.argument("query")
 @click.option("--max", "-m", default=10, help="Maximum number of results")
 @_account_option
-def search(query, max, account):
+@click.pass_context
+def search(ctx, query, max, account):
     """Search emails."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         messages = api.list_messages(max_results=max, query=query)
@@ -268,8 +281,10 @@ def search(query, max, account):
 @click.option("--max", "-m", default=10, help="Maximum number of threads")
 @click.option("--query", "-q", help="Search query")
 @_account_option
-def threads(max, query, account):
+@click.pass_context
+def threads(ctx, max, query, account):
     """List email threads."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         threads = api.list_threads(max_results=max, query=query)
@@ -290,8 +305,10 @@ def threads(max, query, account):
 @cli.command()
 @click.argument("message_id")
 @_account_option
-def mark_read(message_id, account):
+@click.pass_context
+def mark_read(ctx, message_id, account):
     """Mark a message as read."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         api.mark_as_read(message_id)
@@ -304,8 +321,10 @@ def mark_read(message_id, account):
 @cli.command()
 @click.argument("message_id")
 @_account_option
-def archive(message_id, account):
+@click.pass_context
+def archive(ctx, message_id, account):
     """Archive a message."""
+    account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         api.archive_message(message_id)
