@@ -288,4 +288,330 @@ class GmailAPI:
             )
         except HttpError as error:
             raise Exception(f"Failed to delete filter: {error}")
+    
+    def mark_as_spam(self, message_id):
+        """Mark a message as spam."""
+        return self.modify_message(message_id, add_label_ids=["SPAM"], remove_label_ids=["INBOX"])
+    
+    def unmark_spam(self, message_id):
+        """Remove spam label from a message."""
+        return self.modify_message(message_id, remove_label_ids=["SPAM"], add_label_ids=["INBOX"])
+    
+    def star_message(self, message_id):
+        """Star a message."""
+        return self.modify_message(message_id, add_label_ids=["STARRED"])
+    
+    def unstar_message(self, message_id):
+        """Unstar a message."""
+        return self.modify_message(message_id, remove_label_ids=["STARRED"])
+    
+    def create_label(self, name, message_list_visibility="show", label_list_visibility="labelShow", color=None):
+        """
+        Create a new label.
+        
+        Args:
+            name: Label name
+            message_list_visibility: "show" or "hide"
+            label_list_visibility: "labelShow" or "labelHide"
+            color: Dict with backgroundColor and textColor (optional)
+        """
+        try:
+            label_body = {
+                "name": name,
+                "messageListVisibility": message_list_visibility,
+                "labelListVisibility": label_list_visibility
+            }
+            if color:
+                label_body["color"] = color
+            
+            result = (
+                self.service.users()
+                .labels()
+                .create(userId=self.user_id, body={"label": label_body})
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to create label: {error}")
+    
+    def delete_label(self, label_id):
+        """Delete a label."""
+        try:
+            (
+                self.service.users()
+                .labels()
+                .delete(userId=self.user_id, id=label_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to delete label: {error}")
+    
+    def update_label(self, label_id, name=None, message_list_visibility=None, label_list_visibility=None, color=None):
+        """
+        Update a label.
+        
+        Args:
+            label_id: Label ID to update
+            name: New name (optional)
+            message_list_visibility: New visibility (optional)
+            label_list_visibility: New list visibility (optional)
+            color: New color dict (optional)
+        """
+        try:
+            label_body = {}
+            if name is not None:
+                label_body["name"] = name
+            if message_list_visibility is not None:
+                label_body["messageListVisibility"] = message_list_visibility
+            if label_list_visibility is not None:
+                label_body["labelListVisibility"] = label_list_visibility
+            if color is not None:
+                label_body["color"] = color
+            
+            result = (
+                self.service.users()
+                .labels()
+                .patch(userId=self.user_id, id=label_id, body={"label": label_body})
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to update label: {error}")
+    
+    def get_label(self, label_id):
+        """Get a specific label by ID."""
+        try:
+            result = (
+                self.service.users()
+                .labels()
+                .get(userId=self.user_id, id=label_id)
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to get label: {error}")
+    
+    def create_draft(self, to, subject, body, attachments=None):
+        """
+        Create a draft message.
+        
+        Args:
+            to: Recipient email address
+            subject: Email subject
+            body: Email body (plain text)
+            attachments: List of file paths to attach (optional)
+        """
+        try:
+            if attachments:
+                message = self._create_message_with_attachments(to, subject, body, attachments)
+            else:
+                message = self._create_message(to, subject, body)
+            
+            draft = (
+                self.service.users()
+                .drafts()
+                .create(userId=self.user_id, body={"message": message})
+                .execute()
+            )
+            return draft
+        except HttpError as error:
+            raise Exception(f"Failed to create draft: {error}")
+    
+    def list_drafts(self, max_results=10):
+        """List draft messages."""
+        try:
+            results = (
+                self.service.users()
+                .drafts()
+                .list(userId=self.user_id, maxResults=max_results)
+                .execute()
+            )
+            drafts = results.get("drafts", [])
+            return drafts
+        except HttpError as error:
+            raise Exception(f"Failed to list drafts: {error}")
+    
+    def get_draft(self, draft_id):
+        """Get a specific draft by ID."""
+        try:
+            result = (
+                self.service.users()
+                .drafts()
+                .get(userId=self.user_id, id=draft_id)
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to get draft: {error}")
+    
+    def update_draft(self, draft_id, to, subject, body, attachments=None):
+        """
+        Update a draft message.
+        
+        Args:
+            draft_id: Draft ID to update
+            to: Recipient email address
+            subject: Email subject
+            body: Email body (plain text)
+            attachments: List of file paths to attach (optional)
+        """
+        try:
+            if attachments:
+                message = self._create_message_with_attachments(to, subject, body, attachments)
+            else:
+                message = self._create_message(to, subject, body)
+            
+            draft = (
+                self.service.users()
+                .drafts()
+                .update(userId=self.user_id, id=draft_id, body={"message": message})
+                .execute()
+            )
+            return draft
+        except HttpError as error:
+            raise Exception(f"Failed to update draft: {error}")
+    
+    def delete_draft(self, draft_id):
+        """Delete a draft."""
+        try:
+            (
+                self.service.users()
+                .drafts()
+                .delete(userId=self.user_id, id=draft_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to delete draft: {error}")
+    
+    def reply_to_message(self, message_id, body, reply_all=False):
+        """
+        Reply to a message.
+        
+        Args:
+            message_id: The message ID to reply to
+            body: Reply body text
+            reply_all: If True, reply to all recipients
+        """
+        try:
+            # Get the original message
+            original = self.get_message(message_id, format="full")
+            headers = original.get("payload", {}).get("headers", [])
+            
+            # Extract original message details
+            from_email = next((h["value"] for h in headers if h["name"] == "From"), "")
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
+            to_email = next((h["value"] for h in headers if h["name"] == "To"), "")
+            cc_email = next((h["value"] for h in headers if h["name"] == "Cc"), "")
+            
+            # Build reply subject
+            reply_subject = subject
+            if not reply_subject.startswith("Re: "):
+                reply_subject = f"Re: {reply_subject}"
+            
+            # Create reply message
+            reply = MIMEText(body)
+            reply["to"] = from_email
+            reply["subject"] = reply_subject
+            
+            if reply_all and cc_email:
+                reply["cc"] = cc_email
+            
+            # Set In-Reply-To and References headers for threading
+            message_id_header = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
+            if message_id_header:
+                reply["In-Reply-To"] = message_id_header
+                reply["References"] = message_id_header
+            
+            message = {"raw": base64.urlsafe_b64encode(reply.as_bytes()).decode()}
+            
+            sent_message = (
+                self.service.users()
+                .messages()
+                .send(userId=self.user_id, body=message)
+                .execute()
+            )
+            return sent_message
+        except HttpError as error:
+            raise Exception(f"Failed to reply to message: {error}")
+    
+    def forward_message(self, message_id, to, body=None):
+        """
+        Forward a message.
+        
+        Args:
+            message_id: The message ID to forward
+            to: Recipient email address
+            body: Optional forward message body
+        """
+        try:
+            # Get the original message
+            original = self.get_message(message_id, format="full")
+            headers = original.get("payload", {}).get("headers", [])
+            
+            # Extract original message details
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
+            from_email = next((h["value"] for h in headers if h["name"] == "From"), "")
+            date = next((h["value"] for h in headers if h["name"] == "Date"), "")
+            
+            # Build forward subject
+            forward_subject = subject
+            if not forward_subject.startswith("Fwd: "):
+                forward_subject = f"Fwd: {forward_subject}"
+            
+            # Build forward body
+            forward_body = body or ""
+            forward_body += f"\n\n---------- Forwarded message ----------\n"
+            forward_body += f"From: {from_email}\n"
+            forward_body += f"Date: {date}\n"
+            forward_body += f"Subject: {subject}\n"
+            forward_body += f"To: {to}\n\n"
+            
+            # Extract original body
+            payload = original.get("payload", {})
+            original_body = ""
+            if "parts" in payload:
+                for part in payload["parts"]:
+                    if part.get("mimeType") == "text/plain":
+                        data = part.get("body", {}).get("data")
+                        if data:
+                            original_body = base64.urlsafe_b64decode(data).decode("utf-8")
+                            break
+            else:
+                if payload.get("mimeType") == "text/plain":
+                    data = payload.get("body", {}).get("data")
+                    if data:
+                        original_body = base64.urlsafe_b64decode(data).decode("utf-8")
+            
+            forward_body += original_body
+            
+            # Create forward message
+            forward = MIMEText(forward_body)
+            forward["to"] = to
+            forward["subject"] = forward_subject
+            
+            message = {"raw": base64.urlsafe_b64encode(forward.as_bytes()).decode()}
+            
+            sent_message = (
+                self.service.users()
+                .messages()
+                .send(userId=self.user_id, body=message)
+                .execute()
+            )
+            return sent_message
+        except HttpError as error:
+            raise Exception(f"Failed to forward message: {error}")
+    
+    def block_sender(self, email):
+        """
+        Block a sender by creating a filter that marks their emails as spam.
+        
+        Args:
+            email: Email address to block
+        """
+        try:
+            criteria = {"from": email}
+            action = {"addLabelIds": ["SPAM"], "removeLabelIds": ["INBOX"]}
+            return self.create_filter(criteria, action)
+        except HttpError as error:
+            raise Exception(f"Failed to block sender: {error}")
 

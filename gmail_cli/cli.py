@@ -488,6 +488,343 @@ def delete_filter(ctx, filter_id, account):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def spam(ctx, message_id, account):
+    """Mark a message as spam."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.mark_as_spam(message_id)
+        click.echo(f"✅ Message {message_id} marked as spam")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def unspam(ctx, message_id, account):
+    """Remove spam label from a message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.unmark_spam(message_id)
+        click.echo(f"✅ Message {message_id} removed from spam")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def star(ctx, message_id, account):
+    """Star a message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.star_message(message_id)
+        click.echo(f"✅ Message {message_id} starred")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@_account_option
+@click.pass_context
+def unstar(ctx, message_id, account):
+    """Unstar a message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.unstar_message(message_id)
+        click.echo(f"✅ Message {message_id} unstarred")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--visibility", "-v", default="show", help="Message list visibility (show/hide)")
+@click.option("--list-visibility", "-l", default="labelShow", help="Label list visibility (labelShow/labelHide)")
+@click.option("--bg-color", help="Background color (hex, e.g., #4285f4)")
+@click.option("--text-color", help="Text color (hex, e.g., #ffffff)")
+@_account_option
+@click.pass_context
+def create_label(ctx, name, visibility, list_visibility, bg_color, text_color, account):
+    """Create a new label."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        color = None
+        if bg_color or text_color:
+            color = {}
+            if bg_color:
+                color["backgroundColor"] = bg_color
+            if text_color:
+                color["textColor"] = text_color
+        
+        result = api.create_label(name, visibility, list_visibility, color)
+        click.echo(f"✅ Label created successfully!")
+        click.echo(f"   Label ID: {result.get('id')}")
+        click.echo(f"   Name: {result.get('name')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("label_id")
+@_account_option
+@click.pass_context
+def delete_label(ctx, label_id, account):
+    """Delete a label."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.delete_label(label_id)
+        click.echo(f"✅ Label {label_id} deleted successfully")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("label_id")
+@click.option("--name", "-n", help="New label name")
+@click.option("--visibility", "-v", help="Message list visibility (show/hide)")
+@click.option("--list-visibility", "-l", help="Label list visibility (labelShow/labelHide)")
+@click.option("--bg-color", help="Background color (hex)")
+@click.option("--text-color", help="Text color (hex)")
+@_account_option
+@click.pass_context
+def update_label(ctx, label_id, name, visibility, list_visibility, bg_color, text_color, account):
+    """Update a label."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        color = None
+        if bg_color or text_color:
+            color = {}
+            if bg_color:
+                color["backgroundColor"] = bg_color
+            if text_color:
+                color["textColor"] = text_color
+        
+        result = api.update_label(label_id, name, visibility, list_visibility, color)
+        click.echo(f"✅ Label updated successfully!")
+        click.echo(f"   Label ID: {result.get('id')}")
+        click.echo(f"   Name: {result.get('name')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("label_id")
+@_account_option
+@click.pass_context
+def get_label(ctx, label_id, account):
+    """Get label details."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        label = api.get_label(label_id)
+        click.echo(f"🏷️  Label ID: {label.get('id')}")
+        click.echo(f"   Name: {label.get('name')}")
+        click.echo(f"   Message List Visibility: {label.get('messageListVisibility')}")
+        click.echo(f"   Label List Visibility: {label.get('labelListVisibility')}")
+        if label.get("color"):
+            click.echo(f"   Background Color: {label.get('color', {}).get('backgroundColor')}")
+            click.echo(f"   Text Color: {label.get('color', {}).get('textColor')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--max", "-m", default=10, help="Maximum number of drafts")
+@_account_option
+@click.pass_context
+def drafts(ctx, max, account):
+    """List draft messages."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        drafts = api.list_drafts(max)
+        
+        if not drafts:
+            click.echo("No drafts found.")
+            return
+        
+        click.echo(f"Found {len(drafts)} drafts:\n")
+        for draft in drafts:
+            draft_id = draft.get("id")
+            message = draft.get("message", {})
+            message_id = message.get("id")
+            click.echo(f"📝 Draft ID: {draft_id}")
+            click.echo(f"   Message ID: {message_id}")
+            click.echo()
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("to")
+@click.argument("subject")
+@click.option("--body", "-b", help="Email body text")
+@click.option("--attach", "-a", multiple=True, help="Attachment file path (can specify multiple)")
+@_account_option
+@click.pass_context
+def create_draft(ctx, to, subject, body, attach, account):
+    """Create a draft message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    if not body:
+        body = click.prompt("Email body", type=str)
+    
+    try:
+        api = GmailAPI(account)
+        attachments = list(attach) if attach else None
+        result = api.create_draft(to, subject, body, attachments)
+        click.echo(f"✅ Draft created successfully!")
+        click.echo(f"   Draft ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("draft_id")
+@_account_option
+@click.pass_context
+def get_draft(ctx, draft_id, account):
+    """Get draft details."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        draft = api.get_draft(draft_id)
+        message = draft.get("message", {})
+        
+        click.echo(f"📝 Draft ID: {draft.get('id')}")
+        click.echo(f"   Message ID: {message.get('id')}")
+        
+        headers = message.get("payload", {}).get("headers", [])
+        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
+        to = next((h["value"] for h in headers if h["name"] == "To"), "Unknown")
+        
+        click.echo(f"   To: {to}")
+        click.echo(f"   Subject: {subject}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("draft_id")
+@click.argument("to")
+@click.argument("subject")
+@click.option("--body", "-b", help="Email body text")
+@click.option("--attach", "-a", multiple=True, help="Attachment file path")
+@_account_option
+@click.pass_context
+def update_draft(ctx, draft_id, to, subject, body, attach, account):
+    """Update a draft message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    if not body:
+        body = click.prompt("Email body", type=str)
+    
+    try:
+        api = GmailAPI(account)
+        attachments = list(attach) if attach else None
+        result = api.update_draft(draft_id, to, subject, body, attachments)
+        click.echo(f"✅ Draft updated successfully!")
+        click.echo(f"   Draft ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("draft_id")
+@_account_option
+@click.pass_context
+def delete_draft(ctx, draft_id, account):
+    """Delete a draft."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.delete_draft(draft_id)
+        click.echo(f"✅ Draft {draft_id} deleted successfully")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@click.argument("body")
+@click.option("--reply-all", is_flag=True, help="Reply to all recipients")
+@_account_option
+@click.pass_context
+def reply(ctx, message_id, body, reply_all, account):
+    """Reply to a message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        result = api.reply_to_message(message_id, body, reply_all)
+        click.echo(f"✅ Reply sent successfully!")
+        click.echo(f"   Message ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("message_id")
+@click.argument("to")
+@click.option("--body", "-b", help="Forward message body")
+@_account_option
+@click.pass_context
+def forward(ctx, message_id, to, body, account):
+    """Forward a message."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        result = api.forward_message(message_id, to, body)
+        click.echo(f"✅ Message forwarded successfully!")
+        click.echo(f"   Message ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("email")
+@_account_option
+@click.pass_context
+def block(ctx, email, account):
+    """Block a sender (creates filter to mark as spam)."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        result = api.block_sender(email)
+        click.echo(f"✅ Sender {email} blocked successfully!")
+        click.echo(f"   Filter ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
 
