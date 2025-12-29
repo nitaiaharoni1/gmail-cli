@@ -336,6 +336,158 @@ def archive(ctx, message_id, account):
         sys.exit(1)
 
 
+@cli.command()
+@_account_option
+@click.pass_context
+def filters(ctx, account):
+    """List all Gmail filters."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        filters = api.list_filters()
+        
+        if not filters:
+            click.echo("No filters found.")
+            return
+        
+        click.echo(f"Found {len(filters)} filters:\n")
+        for f in filters:
+            click.echo(f"🔍 Filter ID: {f.get('id')}")
+            
+            criteria = f.get("criteria", {})
+            if criteria:
+                click.echo("   Criteria:")
+                if criteria.get("from"):
+                    click.echo(f"     From: {criteria.get('from')}")
+                if criteria.get("to"):
+                    click.echo(f"     To: {criteria.get('to')}")
+                if criteria.get("subject"):
+                    click.echo(f"     Subject: {criteria.get('subject')}")
+                if criteria.get("query"):
+                    click.echo(f"     Query: {criteria.get('query')}")
+                if criteria.get("hasAttachment"):
+                    click.echo(f"     Has Attachment: {criteria.get('hasAttachment')}")
+            
+            action = f.get("action", {})
+            if action:
+                click.echo("   Actions:")
+                if action.get("addLabelIds"):
+                    click.echo(f"     Add Labels: {', '.join(action.get('addLabelIds', []))}")
+                if action.get("removeLabelIds"):
+                    click.echo(f"     Remove Labels: {', '.join(action.get('removeLabelIds', []))}")
+                if action.get("forward"):
+                    click.echo(f"     Forward to: {action.get('forward')}")
+            
+            click.echo()
+    
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--from", "-f", help="Filter by sender email or name")
+@click.option("--to", "-t", help="Filter by recipient email or name")
+@click.option("--subject", "-s", help="Filter by subject (case-insensitive)")
+@click.option("--query", "-q", help="Gmail search query")
+@click.option("--has-attachment", is_flag=True, help="Filter messages with attachments")
+@click.option("--add-label", multiple=True, help="Label ID to add (can specify multiple)")
+@click.option("--remove-label", multiple=True, help="Label ID to remove (can specify multiple)")
+@click.option("--forward", help="Email address to forward matching messages to")
+@_account_option
+@click.pass_context
+def create_filter(ctx, from_, to, subject, query, has_attachment, add_label, remove_label, forward, account):
+    """Create a new Gmail filter."""
+    account = account or ctx.obj.get("ACCOUNT")
+    
+    # Build criteria
+    criteria = {}
+    if from_:
+        criteria["from"] = from_
+    if to:
+        criteria["to"] = to
+    if subject:
+        criteria["subject"] = subject
+    if query:
+        criteria["query"] = query
+    if has_attachment:
+        criteria["hasAttachment"] = True
+    
+    if not criteria:
+        click.echo("❌ Error: At least one filter criterion is required.")
+        click.echo("\nUse options like --from, --to, --subject, --query, or --has-attachment")
+        sys.exit(1)
+    
+    # Build action
+    action = {}
+    if add_label:
+        action["addLabelIds"] = list(add_label)
+    if remove_label:
+        action["removeLabelIds"] = list(remove_label)
+    if forward:
+        action["forward"] = forward
+    
+    if not action:
+        click.echo("❌ Error: At least one filter action is required.")
+        click.echo("\nUse options like --add-label, --remove-label, or --forward")
+        sys.exit(1)
+    
+    try:
+        api = GmailAPI(account)
+        result = api.create_filter(criteria, action)
+        click.echo(f"✅ Filter created successfully!")
+        click.echo(f"   Filter ID: {result.get('id')}")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("filter_id")
+@_account_option
+@click.pass_context
+def get_filter(ctx, filter_id, account):
+    """Get details of a specific filter."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        f = api.get_filter(filter_id)
+        
+        click.echo(f"🔍 Filter ID: {f.get('id')}\n")
+        
+        criteria = f.get("criteria", {})
+        if criteria:
+            click.echo("Criteria:")
+            for key, value in criteria.items():
+                click.echo(f"  {key}: {value}")
+        
+        action = f.get("action", {})
+        if action:
+            click.echo("\nActions:")
+            for key, value in action.items():
+                click.echo(f"  {key}: {value}")
+    
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("filter_id")
+@_account_option
+@click.pass_context
+def delete_filter(ctx, filter_id, account):
+    """Delete a Gmail filter."""
+    account = account or ctx.obj.get("ACCOUNT")
+    try:
+        api = GmailAPI(account)
+        api.delete_filter(filter_id)
+        click.echo(f"✅ Filter {filter_id} deleted successfully")
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
 

@@ -205,4 +205,87 @@ class GmailAPI:
     def archive_message(self, message_id):
         """Archive a message (remove INBOX label)."""
         return self.modify_message(message_id, remove_label_ids=["INBOX"])
+    
+    def create_filter(self, criteria, action):
+        """
+        Create a Gmail filter.
+        
+        Args:
+            criteria: Dictionary with filter criteria (from, to, subject, query, etc.)
+            action: Dictionary with filter actions (addLabelIds, removeLabelIds, forward)
+        
+        Returns:
+            Created filter object with ID
+        """
+        try:
+            filter_body = {
+                "criteria": criteria,
+                "action": action
+            }
+            
+            result = (
+                self.service.users()
+                .settings()
+                .filters()
+                .create(userId=self.user_id, body=filter_body)
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to create filter: {error}")
+    
+    def list_filters(self):
+        """List all Gmail filters."""
+        try:
+            results = (
+                self.service.users()
+                .settings()
+                .filters()
+                .list(userId=self.user_id)
+                .execute()
+            )
+            filters = results.get("filter", [])
+            return filters
+        except HttpError as error:
+            raise Exception(f"Failed to list filters: {error}")
+    
+    def get_filter(self, filter_id):
+        """
+        Get a specific filter by ID.
+        
+        Args:
+            filter_id: The filter ID
+        
+        Returns:
+            Filter object
+        """
+        try:
+            result = (
+                self.service.users()
+                .settings()
+                .filters()
+                .get(userId=self.user_id, id=filter_id)
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to get filter: {error}")
+    
+    def delete_filter(self, filter_id):
+        """
+        Delete a Gmail filter.
+        
+        Args:
+            filter_id: The filter ID to delete
+        """
+        try:
+            (
+                self.service.users()
+                .settings()
+                .filters()
+                .delete(userId=self.user_id, id=filter_id)
+                .execute()
+            )
+        except HttpError as error:
+            raise Exception(f"Failed to delete filter: {error}")
 
