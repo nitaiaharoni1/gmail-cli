@@ -249,16 +249,75 @@ def labels(ctx, account):
 
 
 @cli.command()
-@click.argument("query")
+@click.argument("query", required=False)
 @click.option("--max", "-m", default=10, help="Maximum number of results")
+@click.option("--from", "-f", help="Search by sender email or name")
+@click.option("--to", "-t", help="Search by recipient email or name")
+@click.option("--subject", "-s", help="Search in subject line")
+@click.option("--has-attachment", is_flag=True, help="Messages with attachments")
+@click.option("--label", "-l", help="Filter by label ID")
+@click.option("--is-unread", is_flag=True, help="Unread messages only")
+@click.option("--is-read", is_flag=True, help="Read messages only")
+@click.option("--is-starred", is_flag=True, help="Starred messages only")
+@click.option("--before", help="Before date (YYYY/MM/DD or YYYY-MM-DD)")
+@click.option("--after", help="After date (YYYY/MM/DD or YYYY-MM-DD)")
+@click.option("--newer-than", help="Newer than (e.g., '7d', '1m', '1y')")
+@click.option("--older-than", help="Older than (e.g., '7d', '1m', '1y')")
+@click.option("--larger", help="Larger than size (e.g., '10M', '1G')")
+@click.option("--smaller", help="Smaller than size (e.g., '10M', '1G')")
 @_account_option
 @click.pass_context
-def search(ctx, query, max, account):
-    """Search emails."""
+def search(ctx, query, max, from_, to, subject, has_attachment, label, is_unread, is_read, is_starred, before, after, newer_than, older_than, larger, smaller, account):
+    """Search emails using Gmail search syntax or convenient options."""
     account = account or ctx.obj.get("ACCOUNT")
+    
+    # Build query from options if no direct query provided
+    if not query:
+        query_parts = []
+        if from_:
+            query_parts.append(f"from:{from_}")
+        if to:
+            query_parts.append(f"to:{to}")
+        if subject:
+            query_parts.append(f'subject:"{subject}"')
+        if has_attachment:
+            query_parts.append("has:attachment")
+        if label:
+            query_parts.append(f"label:{label}")
+        if is_unread:
+            query_parts.append("is:unread")
+        if is_read:
+            query_parts.append("is:read")
+        if is_starred:
+            query_parts.append("is:starred")
+        if before:
+            query_parts.append(f"before:{before}")
+        if after:
+            query_parts.append(f"after:{after}")
+        if newer_than:
+            query_parts.append(f"newer_than:{newer_than}")
+        if older_than:
+            query_parts.append(f"older_than:{older_than}")
+        if larger:
+            query_parts.append(f"larger:{larger}")
+        if smaller:
+            query_parts.append(f"smaller:{smaller}")
+        
+        if not query_parts:
+            click.echo("❌ Error: Please provide a search query or use search options.")
+            click.echo("\nExamples:")
+            click.echo("  gmail search 'important'")
+            click.echo("  gmail search --from sender@example.com")
+            click.echo("  gmail search --subject 'meeting' --is-unread")
+            click.echo("  gmail search --has-attachment --newer-than 7d")
+            sys.exit(1)
+        
+        query = " ".join(query_parts)
+    
     try:
         api = GmailAPI(account)
-        messages = api.list_messages(max_results=max, query=query)
+        label_ids = [label] if label else None
+        messages = api.list_messages(max_results=max, label_ids=label_ids, query=query)
         
         if not messages:
             click.echo(f"No messages found for query: {query}")
@@ -271,8 +330,21 @@ def search(ctx, query, max, account):
             headers = message.get("payload", {}).get("headers", [])
             subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
             sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+            date = next((h["value"] for h in headers if h["name"] == "Date"), "")
             
-            click.echo(f"📧 {msg['id']}: {subject} (from {sender})")
+            snippet = message.get("snippet", "")[:100]
+            labels = message.get("labelIds", [])
+            label_display = ", ".join([l for l in labels if l not in ["INBOX", "UNREAD"]])
+            
+            click.echo(f"📧 {msg['id']}")
+            click.echo(f"   From: {sender}")
+            click.echo(f"   Subject: {subject}")
+            click.echo(f"   Date: {date}")
+            if label_display:
+                click.echo(f"   Labels: {label_display}")
+            if snippet:
+                click.echo(f"   Preview: {snippet}...")
+            click.echo()
     
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
