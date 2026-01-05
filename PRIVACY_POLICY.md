@@ -50,7 +50,7 @@ Gmail CLI uses Google's Gmail API to access your Gmail account. Your use of Gmai
 
 ## Contact
 
-For questions about this privacy policy, please contact: [Your Email]
+For questions about this privacy policy, please contact: nitaiaharoni1@gmail.com
 
 ## Changes to This Policy
 
