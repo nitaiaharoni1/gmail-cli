@@ -4,6 +4,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from .auth import get_credentials, check_auth
 from .utils import format_email_address, format_date
+from .retry import with_retry
 import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -30,6 +31,7 @@ class GmailAPI:
         self.user_id = "me"
         self.account = account
     
+    @with_retry()
     def get_profile(self):
         """Get user profile information."""
         try:
@@ -38,6 +40,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get profile: {error}")
     
+    @with_retry()
     def list_messages(self, max_results=10, label_ids=None, query=None):
         """
         List messages from the user's mailbox.
@@ -62,6 +65,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to list messages: {error}")
     
+    @with_retry()
     def get_message(self, message_id, format="full"):
         """
         Get a specific message by ID.
@@ -81,7 +85,90 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get message: {error}")
     
-    def send_message(self, to, subject, body, attachments=None):
+    @with_retry()
+    def get_messages_batch(self, message_ids, format="metadata"):
+        """
+        Fetch multiple messages in a single batch request.
+        
+        Args:
+            message_ids: List of message IDs to fetch
+            format: Format of the messages (full, metadata, minimal, raw)
+        
+        Returns:
+            List of message dictionaries, preserving order
+        """
+        if not message_ids:
+            return []
+        
+        try:
+            batch = self.service.new_batch_http_request()
+            results = {}
+            errors = {}
+            
+            def callback(request_id, response, exception):
+                if exception:
+                    errors[request_id] = str(exception)
+                else:
+                    results[request_id] = response
+            
+            for msg_id in message_ids:
+                batch.add(
+                    self.service.users().messages().get(
+                        userId=self.user_id, id=msg_id, format=format
+                    ),
+                    callback=callback,
+                    request_id=msg_id
+                )
+            
+            batch.execute()
+            
+            # Return results in original order
+            ordered_results = []
+            for msg_id in message_ids:
+                if msg_id in results:
+                    ordered_results.append(results[msg_id])
+                elif msg_id in errors:
+                    # Include error info in result
+                    ordered_results.append({
+                        "id": msg_id,
+                        "error": errors[msg_id]
+                    })
+            
+            return ordered_results
+        except HttpError as error:
+            raise Exception(f"Failed to batch get messages: {error}")
+    
+    @with_retry()
+    def search_with_details(self, max_results=10, label_ids=None, query=None, format="metadata"):
+        """
+        Search messages and return full details in batch.
+        
+        Args:
+            max_results: Maximum number of messages to return
+            label_ids: List of label IDs to filter by
+            query: Query string to search for
+            format: Format of the messages (full, metadata, minimal, raw)
+        
+        Returns:
+            List of message dictionaries with full details
+        """
+        try:
+            # First, get message IDs
+            message_list = self.list_messages(max_results=max_results, label_ids=label_ids, query=query)
+            
+            if not message_list:
+                return []
+            
+            # Extract IDs
+            message_ids = [msg["id"] for msg in message_list]
+            
+            # Fetch details in batch
+            return self.get_messages_batch(message_ids, format=format)
+        except HttpError as error:
+            raise Exception(f"Failed to search with details: {error}")
+    
+    @with_retry()
+    def send_message(self, to, subject, body, attachments=None, cc=None):
         """
         Send an email message.
         
@@ -90,14 +177,15 @@ class GmailAPI:
             subject: Email subject
             body: Email body (plain text)
             attachments: List of file paths to attach
+            cc: CC recipient email address(es) (string or list)
         """
         try:
             if attachments:
                 message = self._create_message_with_attachments(
-                    to, subject, body, attachments
+                    to, subject, body, attachments, cc
                 )
             else:
-                message = self._create_message(to, subject, body)
+                message = self._create_message(to, subject, body, cc)
             
             sent_message = (
                 self.service.users()
@@ -109,18 +197,22 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to send message: {error}")
     
-    def _create_message(self, to, subject, body):
+    def _create_message(self, to, subject, body, cc=None):
         """Create a message for sending."""
         message = MIMEText(body)
         message["to"] = to
         message["subject"] = subject
+        if cc:
+            message["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
         return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
     
-    def _create_message_with_attachments(self, to, subject, body, attachments):
+    def _create_message_with_attachments(self, to, subject, body, attachments, cc=None):
         """Create a message with attachments."""
         message = MIMEMultipart()
         message["to"] = to
         message["subject"] = subject
+        if cc:
+            message["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
         
         message.attach(MIMEText(body, "plain"))
         
@@ -515,7 +607,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to delete draft: {error}")
     
-    def reply_to_message(self, message_id, body, reply_all=False):
+    def reply_to_message(self, message_id, body, reply_all=False, additional_cc=None):
         """
         Reply to a message.
         
@@ -523,6 +615,7 @@ class GmailAPI:
             message_id: The message ID to reply to
             body: Reply body text
             reply_all: If True, reply to all recipients
+            additional_cc: Additional CC recipient(s) to add
         """
         try:
             # Get the original message
@@ -545,8 +638,15 @@ class GmailAPI:
             reply["to"] = from_email
             reply["subject"] = reply_subject
             
+            # Handle CC recipients
+            cc_list = []
             if reply_all and cc_email:
-                reply["cc"] = cc_email
+                cc_list.append(cc_email)
+            if additional_cc:
+                cc_list.append(additional_cc)
+            
+            if cc_list:
+                reply["cc"] = ", ".join(cc_list)
             
             # Set In-Reply-To and References headers for threading
             message_id_header = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
@@ -554,7 +654,13 @@ class GmailAPI:
                 reply["In-Reply-To"] = message_id_header
                 reply["References"] = message_id_header
             
-            message = {"raw": base64.urlsafe_b64encode(reply.as_bytes()).decode()}
+            # Get the thread ID from the original message
+            thread_id = original.get("threadId")
+            
+            message = {
+                "raw": base64.urlsafe_b64encode(reply.as_bytes()).decode(),
+                "threadId": thread_id  # Add threadId to keep reply in same thread
+            }
             
             sent_message = (
                 self.service.users()
@@ -647,6 +753,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to block sender: {error}")
     
+    @with_retry()
     def delete_message(self, message_id):
         """
         Permanently delete a message. This cannot be undone!
@@ -664,6 +771,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to delete message: {error}")
     
+    @with_retry()
     def trash_message(self, message_id):
         """
         Move a message to trash (can be recovered).

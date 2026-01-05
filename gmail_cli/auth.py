@@ -7,6 +7,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from .utils import get_token_path, get_credentials_path, ensure_token_permissions
+from .shared_auth import check_token_health, refresh_token
 
 
 # Gmail API scopes
@@ -32,6 +33,15 @@ def get_credentials(account=None):
     token_path = get_token_path(account)
     creds = None
     
+    # Check token health first
+    health = check_token_health(account, "gmail", SCOPES)
+    
+    if health["status"] == "scope_mismatch":
+        print(f"⚠️  Token scope mismatch for account '{account or 'default'}'. Re-authentication required.")
+        print(f"   Current scopes: {health.get('current_scopes', [])}")
+        print(f"   Required scopes: {health.get('required_scopes', [])}")
+        return None
+    
     # Load existing token if available
     if token_path.exists():
         try:
@@ -51,7 +61,10 @@ def get_credentials(account=None):
                 ensure_token_permissions(token_path)
             except Exception as e:
                 print(f"Error refreshing token: {e}")
-                creds = None
+                # Try using shared refresh function
+                creds = refresh_token(account, "gmail", SCOPES)
+                if not creds:
+                    return None
         
         if not creds:
             return None

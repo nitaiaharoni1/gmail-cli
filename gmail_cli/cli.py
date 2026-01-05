@@ -3,19 +3,43 @@
 import click
 import json
 import sys
+import logging
+import os
 from .auth import authenticate, get_credentials, check_auth
 from .api import GmailAPI
 from .utils import format_email_address, format_date, list_accounts, get_default_account, set_default_account, get_token_path
+from .shared_auth import check_token_health, refresh_token
+from .config import get_preference, set_preference
+from .templates import list_templates, get_template, create_template, delete_template, render_template
+from .history import add_operation, get_recent_operations, get_last_undoable_operation
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
 @click.version_option(version="1.0.6")
-@click.option("--account", "-a", help="Account name to use (default: current default account)")
+@click.option("--account", "-a", help="Account name to use (default: current default account or GMAIL_ACCOUNT env var)")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
 @click.pass_context
-def cli(ctx, account):
+def cli(ctx, account, verbose):
     """Gmail CLI - Command-line interface for Gmail."""
     ctx.ensure_object(dict)
+    # Resolve account: CLI arg > env var > default
+    if account is None:
+        account = os.getenv("GMAIL_ACCOUNT")
+    if account is None:
+        account = get_default_account()
     ctx.obj["ACCOUNT"] = account
+    
+    # Setup logging
+    if verbose or get_preference("verbose", False):
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        logging.getLogger("googleapiclient").setLevel(logging.DEBUG)
+        ctx.obj["VERBOSE"] = True
+    else:
+        logging.basicConfig(level=logging.WARNING)
+        ctx.obj["VERBOSE"] = False
 
 
 # Account option decorator
@@ -112,6 +136,81 @@ def use(account_name):
     click.echo(f"✅ Default account set to: {account_name}")
 
 
+@cli.group()
+def auth():
+    """Authentication management commands."""
+    pass
+
+
+@auth.command()
+@click.option("--account", "-a", help="Check specific account (default: all accounts)")
+def status(account):
+    """Show token health status for account(s)."""
+    from .auth import SCOPES
+    
+    accounts_to_check = [account] if account else list_accounts()
+    
+    if not accounts_to_check:
+        click.echo("No accounts configured. Run 'gmail init' to add an account.")
+        return
+    
+    for acc in accounts_to_check:
+        health = check_token_health(acc, "gmail", SCOPES)
+        status_icon = {
+            "valid": "✅",
+            "expired_refreshable": "⚠️",
+            "expired": "❌",
+            "scope_mismatch": "❌",
+            "missing": "❌",
+            "error": "❌"
+        }.get(health["status"], "❓")
+        
+        click.echo(f"\n{status_icon} Account: {acc}")
+        click.echo(f"   Status: {health['status']}")
+        click.echo(f"   Message: {health.get('message', 'N/A')}")
+        
+        if health["status"] == "valid" and health.get("expires_in"):
+            hours = health["expires_in"] // 3600
+            days = hours // 24
+            if days > 0:
+                click.echo(f"   Expires in: {days} days, {hours % 24} hours")
+            else:
+                click.echo(f"   Expires in: {hours} hours")
+        
+        if health["status"] == "scope_mismatch":
+            click.echo(f"   Current scopes: {', '.join(health.get('current_scopes', []))}")
+            click.echo(f"   Required scopes: {', '.join(health.get('required_scopes', []))}")
+
+
+@auth.command()
+@click.option("--account", "-a", help="Refresh specific account (default: current default)")
+@click.option("--all", is_flag=True, help="Refresh all accounts")
+def refresh(account, all):
+    """Refresh expired token(s)."""
+    from .auth import SCOPES
+    
+    if all:
+        accounts_to_refresh = list_accounts()
+        if not accounts_to_refresh:
+            click.echo("No accounts configured.")
+            return
+    else:
+        accounts_to_refresh = [account or get_default_account()]
+        if not accounts_to_refresh[0]:
+            click.echo("❌ Error: No account specified and no default account set.")
+            click.echo("Use --account <name> or run 'gmail init' first.")
+            sys.exit(1)
+    
+    for acc in accounts_to_refresh:
+        click.echo(f"\nRefreshing account: {acc}")
+        creds = refresh_token(acc, "gmail", SCOPES)
+        if creds:
+            click.echo(f"✅ Token refreshed successfully for {acc}")
+        else:
+            click.echo(f"❌ Failed to refresh token for {acc}")
+            click.echo("   Run 'gmail init --account {acc}' to re-authenticate.")
+
+
 @cli.command()
 @_account_option
 @click.pass_context
@@ -135,41 +234,88 @@ def me(ctx, account):
 @click.option("--label", "-l", help="Filter by label ID")
 @click.option("--max", "-m", default=10, help="Maximum number of messages")
 @click.option("--query", "-q", help="Search query")
+@click.option("--output", "-o", type=click.Choice(["table", "json", "csv", "ids"]), default="table", help="Output format")
 @_account_option
 @click.pass_context
-def list_messages(ctx, label, max, query, account):
+def list_messages(ctx, label, max, query, output, account):
     """List emails from your mailbox."""
     account = account or ctx.obj.get("ACCOUNT")
     try:
         api = GmailAPI(account)
         label_ids = [label] if label else None
-        messages = api.list_messages(max_results=max, label_ids=label_ids, query=query)
         
-        if not messages:
-            click.echo("No messages found.")
+        # Use batch fetching for better performance
+        if output == "ids":
+            # For IDs only, just get the list
+            messages = api.list_messages(max_results=max, label_ids=label_ids, query=query)
+            for msg in messages:
+                click.echo(msg["id"])
             return
         
-        click.echo(f"Found {len(messages)} messages:\n")
+        # Fetch full details in batch
+        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")
         
-        for msg in messages:
-            message = api.get_message(msg["id"], format="metadata")
-            headers = message.get("payload", {}).get("headers", [])
-            
-            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
-            sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
-            date = next((h["value"] for h in headers if h["name"] == "Date"), "")
-            
-            snippet = message.get("snippet", "")[:100]
-            labels = ", ".join(message.get("labelIds", []))
-            
-            click.echo(f"📧 {msg['id']}")
-            click.echo(f"   From: {sender}")
-            click.echo(f"   Subject: {subject}")
-            click.echo(f"   Date: {date}")
-            click.echo(f"   Labels: {labels}")
-            if snippet:
-                click.echo(f"   Preview: {snippet}...")
-            click.echo()
+        if not messages:
+            if output == "json":
+                click.echo("[]")
+            else:
+                click.echo("No messages found.")
+            return
+        
+        # Filter out errors
+        valid_messages = [msg for msg in messages if "error" not in msg]
+        
+        if output == "json":
+            import json
+            # Convert to serializable format
+            output_data = []
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                output_data.append({
+                    "id": msg.get("id"),
+                    "from": next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
+                    "subject": next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject"),
+                    "date": next((h["value"] for h in headers if h["name"] == "Date"), ""),
+                    "snippet": msg.get("snippet", "")[:100],
+                    "labels": msg.get("labelIds", [])
+                })
+            click.echo(json.dumps(output_data, indent=2, ensure_ascii=False))
+        elif output == "csv":
+            import csv
+            import sys
+            writer = csv.writer(sys.stdout)
+            writer.writerow(["ID", "From", "Subject", "Date", "Labels", "Preview"])
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                writer.writerow([
+                    msg.get("id", ""),
+                    next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
+                    next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject"),
+                    next((h["value"] for h in headers if h["name"] == "Date"), ""),
+                    ", ".join(msg.get("labelIds", [])),
+                    msg.get("snippet", "")[:100]
+                ])
+        else:
+            # Table format (default)
+            click.echo(f"Found {len(valid_messages)} messages:\n")
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                
+                subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
+                sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+                date = next((h["value"] for h in headers if h["name"] == "Date"), "")
+                
+                snippet = msg.get("snippet", "")[:100]
+                labels = ", ".join(msg.get("labelIds", []))
+                
+                click.echo(f"📧 {msg.get('id')}")
+                click.echo(f"   From: {sender}")
+                click.echo(f"   Subject: {subject}")
+                click.echo(f"   Date: {date}")
+                click.echo(f"   Labels: {labels}")
+                if snippet:
+                    click.echo(f"   Preview: {snippet}...")
+                click.echo()
     
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
@@ -226,23 +372,70 @@ def read(ctx, message_id, account):
 
 
 @cli.command()
-@click.argument("to")
-@click.argument("subject")
+@click.argument("to", required=False)
+@click.argument("subject", required=False)
 @click.option("--body", "-b", help="Email body text")
-@click.option("--attach", "-a", multiple=True, help="Attachment file path (can specify multiple)")
+@click.option("--attach", multiple=True, help="Attachment file path (can specify multiple)")
 @click.option("--cc", "-c", help="CC recipient email address")
+@click.option("--template", "-t", help="Use email template (name)")
+@click.option("--interactive", "-i", is_flag=True, help="Interactive mode - prompts for missing fields")
+@click.option("--dry-run", is_flag=True, help="Show what would be sent without actually sending")
 @_account_option
 @click.pass_context
-def send(ctx, to, subject, body, attach, cc, account):
+def send(ctx, to, subject, body, attach, cc, template, interactive, dry_run, account):
     """Send an email."""
     account = account or ctx.obj.get("ACCOUNT")
+    
+    # Interactive mode - prompt for missing fields
+    if interactive or not to or not subject:
+        if not to:
+            to = click.prompt("To", type=str)
+        if not subject:
+            subject = click.prompt("Subject", type=str)
+        if not body:
+            body = click.prompt("Body", type=str)
+        if not cc:
+            cc_input = click.prompt("CC (optional, press Enter to skip)", default="", show_default=False)
+            cc = cc_input if cc_input else None
+    
+    # Load template if specified
+    if template:
+        try:
+            template_data = render_template(template, to=to, subject=subject)
+            to = template_data.get("to") or to
+            subject = template_data.get("subject") or subject
+            body = template_data.get("body") or body
+            cc = template_data.get("cc") or cc
+        except Exception as e:
+            click.echo(f"❌ Error loading template: {e}", err=True)
+            sys.exit(1)
+    
     if not body:
         body = click.prompt("Email body", type=str)
+    
+    if dry_run:
+        click.echo("🔍 DRY RUN - Would send email:")
+        click.echo(f"   To: {to}")
+        if cc:
+            click.echo(f"   CC: {cc}")
+        click.echo(f"   Subject: {subject}")
+        click.echo(f"   Body: {body[:100]}..." if len(body) > 100 else f"   Body: {body}")
+        if attach:
+            click.echo(f"   Attachments: {', '.join(attach)}")
+        return
     
     try:
         api = GmailAPI(account)
         attachments = list(attach) if attach else None
         result = api.send_message(to, subject, body, attachments, cc)
+        
+        # Record in history (send is not undoable)
+        add_operation("send", {
+            "message_id": result.get("id"),
+            "to": to,
+            "subject": subject
+        }, undoable=False)
+        
         click.echo(f"✅ Email sent successfully!")
         click.echo(f"   Message ID: {result.get('id')}")
     except Exception as e:
@@ -295,9 +488,10 @@ def labels(ctx, account):
 @click.option("--older-than", help="Older than (e.g., '7d', '1m', '1y')")
 @click.option("--larger", help="Larger than size (e.g., '10M', '1G')")
 @click.option("--smaller", help="Smaller than size (e.g., '10M', '1G')")
+@click.option("--output", "-o", type=click.Choice(["table", "json", "csv", "ids"]), default="table", help="Output format")
 @_account_option
 @click.pass_context
-def search(ctx, query, max, from_, to, subject, has_attachment, label, is_unread, is_read, is_starred, before, after, newer_than, older_than, larger, smaller, account):
+def search(ctx, query, max, from_, to, subject, has_attachment, label, is_unread, is_read, is_starred, before, after, newer_than, older_than, larger, smaller, output, account):
     """Search emails using Gmail search syntax or convenient options."""
     account = account or ctx.obj.get("ACCOUNT")
     
@@ -347,34 +541,84 @@ def search(ctx, query, max, from_, to, subject, has_attachment, label, is_unread
     try:
         api = GmailAPI(account)
         label_ids = [label] if label else None
-        messages = api.list_messages(max_results=max, label_ids=label_ids, query=query)
         
-        if not messages:
-            click.echo(f"No messages found for query: {query}")
+        # Use batch fetching for better performance
+        if output == "ids":
+            # For IDs only, just get the list
+            messages = api.list_messages(max_results=max, label_ids=label_ids, query=query)
+            for msg in messages:
+                click.echo(msg["id"])
             return
         
-        click.echo(f"Found {len(messages)} messages for '{query}':\n")
+        # Fetch full details in batch
+        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")
         
-        for msg in messages:
-            message = api.get_message(msg["id"], format="metadata")
-            headers = message.get("payload", {}).get("headers", [])
-            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
-            sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
-            date = next((h["value"] for h in headers if h["name"] == "Date"), "")
-            
-            snippet = message.get("snippet", "")[:100]
-            labels = message.get("labelIds", [])
-            label_display = ", ".join([l for l in labels if l not in ["INBOX", "UNREAD"]])
-            
-            click.echo(f"📧 {msg['id']}")
-            click.echo(f"   From: {sender}")
-            click.echo(f"   Subject: {subject}")
-            click.echo(f"   Date: {date}")
-            if label_display:
-                click.echo(f"   Labels: {label_display}")
-            if snippet:
-                click.echo(f"   Preview: {snippet}...")
-            click.echo()
+        if not messages:
+            if output == "json":
+                click.echo("[]")
+            else:
+                click.echo(f"No messages found for query: {query}")
+            return
+        
+        # Filter out errors
+        valid_messages = [msg for msg in messages if "error" not in msg]
+        
+        if output == "json":
+            import json
+            # Convert to serializable format
+            output_data = []
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                labels = msg.get("labelIds", [])
+                label_display = [l for l in labels if l not in ["INBOX", "UNREAD"]]
+                output_data.append({
+                    "id": msg.get("id"),
+                    "from": next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
+                    "subject": next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject"),
+                    "date": next((h["value"] for h in headers if h["name"] == "Date"), ""),
+                    "snippet": msg.get("snippet", "")[:100],
+                    "labels": label_display
+                })
+            click.echo(json.dumps(output_data, indent=2, ensure_ascii=False))
+        elif output == "csv":
+            import csv
+            import sys
+            writer = csv.writer(sys.stdout)
+            writer.writerow(["ID", "From", "Subject", "Date", "Labels", "Preview"])
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                labels = msg.get("labelIds", [])
+                label_display = ", ".join([l for l in labels if l not in ["INBOX", "UNREAD"]])
+                writer.writerow([
+                    msg.get("id", ""),
+                    next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
+                    next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject"),
+                    next((h["value"] for h in headers if h["name"] == "Date"), ""),
+                    label_display,
+                    msg.get("snippet", "")[:100]
+                ])
+        else:
+            # Table format (default)
+            click.echo(f"Found {len(valid_messages)} messages for '{query}':\n")
+            for msg in valid_messages:
+                headers = msg.get("payload", {}).get("headers", [])
+                subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
+                sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+                date = next((h["value"] for h in headers if h["name"] == "Date"), "")
+                
+                snippet = msg.get("snippet", "")[:100]
+                labels = msg.get("labelIds", [])
+                label_display = ", ".join([l for l in labels if l not in ["INBOX", "UNREAD"]])
+                
+                click.echo(f"📧 {msg.get('id')}")
+                click.echo(f"   From: {sender}")
+                click.echo(f"   Subject: {subject}")
+                click.echo(f"   Date: {date}")
+                if label_display:
+                    click.echo(f"   Labels: {label_display}")
+                if snippet:
+                    click.echo(f"   Preview: {snippet}...")
+                click.echo()
     
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
@@ -785,7 +1029,7 @@ def drafts(ctx, max, account):
 @click.argument("to")
 @click.argument("subject")
 @click.option("--body", "-b", help="Email body text")
-@click.option("--attach", "-a", multiple=True, help="Attachment file path (can specify multiple)")
+@click.option("--attach", multiple=True, help="Attachment file path (can specify multiple)")
 @_account_option
 @click.pass_context
 def create_draft(ctx, to, subject, body, attach, account):
@@ -931,11 +1175,16 @@ def block(ctx, email, account):
 @cli.command()
 @click.argument("message_id")
 @click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted without actually deleting")
 @_account_option
 @click.pass_context
-def delete(ctx, message_id, force, account):
+def delete(ctx, message_id, force, dry_run, account):
     """Permanently delete a message (cannot be undone!)."""
     account = account or ctx.obj.get("ACCOUNT")
+    
+    if dry_run:
+        click.echo(f"🔍 DRY RUN - Would permanently delete message {message_id}")
+        return
     
     if not force:
         if not click.confirm(f"⚠️  Warning: This will permanently delete message {message_id}. This cannot be undone!\n   Do you want to continue?"):
@@ -945,6 +1194,12 @@ def delete(ctx, message_id, force, account):
     try:
         api = GmailAPI(account)
         api.delete_message(message_id)
+        
+        # Record in history (delete is not undoable)
+        add_operation("delete", {
+            "message_id": message_id
+        }, undoable=False)
+        
         click.echo(f"✅ Message {message_id} permanently deleted")
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
@@ -953,14 +1208,26 @@ def delete(ctx, message_id, force, account):
 
 @cli.command()
 @click.argument("message_id")
+@click.option("--dry-run", is_flag=True, help="Show what would be trashed without actually trashing")
 @_account_option
 @click.pass_context
-def trash(ctx, message_id, account):
+def trash(ctx, message_id, dry_run, account):
     """Move a message to trash (can be recovered)."""
     account = account or ctx.obj.get("ACCOUNT")
+    
+    if dry_run:
+        click.echo(f"🔍 DRY RUN - Would move message {message_id} to trash")
+        return
+    
     try:
         api = GmailAPI(account)
         api.trash_message(message_id)
+        
+        # Record in history (trash is undoable - can untrash)
+        add_operation("trash", {
+            "message_id": message_id
+        }, undoable=True, undo_func="untrash")
+        
         click.echo(f"✅ Message {message_id} moved to trash")
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
@@ -1293,6 +1560,214 @@ def batch_unspam(ctx, message_ids, query, max, account):
         click.echo(f"✅ Removed spam label from {result['modified']} message(s)")
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--query", "-q", default="is:unread", help="Search query to watch for (default: is:unread)")
+@click.option("--interval", "-i", default=30, type=int, help="Polling interval in seconds (default: 30)")
+@click.option("--max", "-m", default=10, type=int, help="Maximum number of new messages to show per check")
+@_account_option
+@click.pass_context
+def watch(ctx, query, interval, max, account):
+    """Watch for new emails matching a query (polling mode)."""
+    import time
+    
+    account = account or ctx.obj.get("ACCOUNT")
+    click.echo(f"👀 Watching for emails matching: {query}")
+    click.echo(f"   Polling every {interval} seconds")
+    click.echo(f"   Press Ctrl+C to stop\n")
+    
+    api = GmailAPI(account)
+    seen_message_ids = set()
+    
+    try:
+        while True:
+            try:
+                messages = api.list_messages(max_results=max, query=query)
+                new_messages = [msg for msg in messages if msg["id"] not in seen_message_ids]
+                
+                if new_messages:
+                    click.echo(f"\n📬 Found {len(new_messages)} new message(s):")
+                    for msg in new_messages:
+                        message = api.get_message(msg["id"], format="metadata")
+                        headers = message.get("payload", {}).get("headers", [])
+                        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
+                        sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+                        click.echo(f"   📧 {subject} - From: {sender}")
+                        seen_message_ids.add(msg["id"])
+                    click.echo()
+                else:
+                    click.echo(".", nl=False, err=True)  # Progress indicator
+                
+                time.sleep(interval)
+            except KeyboardInterrupt:
+                click.echo("\n\n👋 Stopped watching.")
+                break
+            except Exception as e:
+                click.echo(f"\n❌ Error: {e}", err=True)
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\n👋 Stopped watching.")
+
+
+@cli.group()
+def template():
+    """Email template management commands."""
+    pass
+
+
+@template.command("list")
+def template_list():
+    """List all email templates."""
+    templates = list_templates()
+    if not templates:
+        click.echo("No templates found.")
+        click.echo("\nCreate a template with: gmail template create <name>")
+        return
+    
+    click.echo(f"Found {len(templates)} template(s):\n")
+    for tmpl in templates:
+        click.echo(f"📧 {tmpl['name']}")
+        if tmpl.get("subject"):
+            click.echo(f"   Subject: {tmpl['subject']}")
+        if tmpl.get("to"):
+            click.echo(f"   To: {tmpl['to']}")
+        click.echo()
+
+
+@template.command("create")
+@click.argument("name")
+@click.option("--to", help="Default recipient")
+@click.option("--subject", help="Email subject")
+@click.option("--body", help="Email body")
+@click.option("--cc", help="CC recipient")
+def template_create(name, to, subject, body, cc):
+    """Create a new email template."""
+    if not any([to, subject, body, cc]):
+        click.echo("Creating template interactively...")
+        to = to or click.prompt("To (optional)", default="", show_default=False)
+        subject = subject or click.prompt("Subject (optional)", default="", show_default=False)
+        body = body or click.prompt("Body (optional)", default="", show_default=False)
+        cc = cc or click.prompt("CC (optional)", default="", show_default=False)
+    
+    template = create_template(name, to=to, subject=subject, body=body, cc=cc)
+    click.echo(f"✅ Template '{name}' created successfully!")
+
+
+@template.command("delete")
+@click.argument("name")
+def template_delete(name):
+    """Delete an email template."""
+    if delete_template(name):
+        click.echo(f"✅ Template '{name}' deleted successfully!")
+    else:
+        click.echo(f"❌ Template '{name}' not found.", err=True)
+        sys.exit(1)
+
+
+@template.command("show")
+@click.argument("name")
+def template_show(name):
+    """Show template details."""
+    template = get_template(name)
+    if not template:
+        click.echo(f"❌ Template '{name}' not found.", err=True)
+        sys.exit(1)
+    
+    click.echo(f"📧 Template: {name}")
+    if template.get("to"):
+        click.echo(f"   To: {template['to']}")
+    if template.get("subject"):
+        click.echo(f"   Subject: {template['subject']}")
+    if template.get("body"):
+        click.echo(f"   Body: {template['body']}")
+    if template.get("cc"):
+        click.echo(f"   CC: {template['cc']}")
+
+
+@cli.command()
+@click.option("--limit", "-l", default=10, type=int, help="Number of operations to show")
+def history(limit):
+    """Show recent operation history."""
+    operations = get_recent_operations(limit)
+    
+    if not operations:
+        click.echo("No operations in history.")
+        return
+    
+    click.echo(f"Recent operations (last {len(operations)}):\n")
+    for op in reversed(operations):
+        timestamp = op.get("timestamp", "")
+        op_type = op.get("type", "unknown")
+        details = op.get("details", {})
+        undoable = "✓" if op.get("undoable") else "✗"
+        
+        click.echo(f"{undoable} [{timestamp[:19]}] {op_type}")
+        if details:
+            for key, value in details.items():
+                if key != "message_id":  # Skip internal IDs for cleaner display
+                    click.echo(f"   {key}: {value}")
+        click.echo()
+
+
+@cli.command()
+@_account_option
+@click.pass_context
+def undo(ctx, account):
+    """Undo the last undoable operation."""
+    account = account or ctx.obj.get("ACCOUNT")
+    
+    last_op = get_last_undoable_operation()
+    
+    if not last_op:
+        click.echo("❌ No undoable operation found.")
+        return
+    
+    op_type = last_op.get("type")
+    details = last_op.get("details", {})
+    undo_func = last_op.get("undo_func")
+    
+    click.echo(f"Undoing: {op_type} at {last_op.get('timestamp', '')[:19]}")
+    
+    try:
+        api = GmailAPI(account)
+        
+        if op_type == "trash" and undo_func == "untrash":
+            message_id = details.get("message_id")
+            if message_id:
+                api.untrash_message(message_id)
+                click.echo(f"✅ Message {message_id} restored from trash")
+            else:
+                click.echo("❌ Cannot undo: missing message ID")
+        else:
+            click.echo(f"❌ Cannot undo operation type: {op_type}")
+    
+    except Exception as e:
+        click.echo(f"❌ Error undoing operation: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--shell", type=click.Choice(["bash", "zsh", "fish"]), required=True, help="Shell type for completion script")
+def completion(shell):
+    """Generate shell completion script. Add to your shell config file."""
+    try:
+        from click.shell_completion import get_completion_script
+        
+        # Get the completion script
+        script = get_completion_script("gmail", "_GMAIL_COMPLETE", shell)
+        click.echo(script)
+        click.echo(f"\n# To install, run:", err=True)
+        if shell == "fish":
+            click.echo(f"# gmail completion --shell {shell} > ~/.config/fish/completions/gmail.fish", err=True)
+        else:
+            click.echo(f"# gmail completion --shell {shell} >> ~/.{shell}rc", err=True)
+    except ImportError:
+        click.echo("❌ Shell completion not available. Install click>=8.0", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error generating completion script: {e}", err=True)
         sys.exit(1)
 
 
