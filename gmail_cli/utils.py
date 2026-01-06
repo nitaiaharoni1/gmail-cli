@@ -7,6 +7,11 @@ from .shared_auth import (
     get_default_account as _get_default_account,
     set_default_account as _set_default_account,
     list_accounts as _list_accounts,
+    remove_account as _remove_account,
+    set_account_alias as _set_account_alias,
+    remove_account_alias as _remove_account_alias,
+    get_account_aliases as _get_account_aliases,
+    resolve_account as _resolve_account,
     get_token_path as _get_token_path,
     get_credentials_path as _get_credentials_path,
     ensure_token_permissions as _ensure_token_permissions,
@@ -26,6 +31,31 @@ def set_default_account(account_name):
 def list_accounts():
     """List all configured accounts."""
     return _list_accounts()
+
+
+def remove_account(account_name):
+    """Remove an account and its token."""
+    return _remove_account(account_name)
+
+
+def set_account_alias(alias, account_email):
+    """Set an alias for an account."""
+    return _set_account_alias(alias, account_email)
+
+
+def remove_account_alias(alias):
+    """Remove an account alias."""
+    return _remove_account_alias(alias)
+
+
+def get_account_aliases():
+    """Get all account aliases."""
+    return _get_account_aliases()
+
+
+def resolve_account(account_or_alias):
+    """Resolve an account name or alias to the actual account email."""
+    return _resolve_account(account_or_alias)
 
 
 def get_token_path(account=None):

@@ -126,6 +126,133 @@ def list_accounts():
     return config.get("accounts", [])
 
 
+def remove_account(account_name):
+    """
+    Remove an account from the configuration and delete its token file.
+    
+    Args:
+        account_name: Account name to remove
+        
+    Returns:
+        True if account was removed, False if account didn't exist
+    """
+    config = get_shared_config()
+    accounts = config.get("accounts", [])
+    
+    if account_name not in accounts:
+        return False
+    
+    # Remove from accounts list
+    accounts.remove(account_name)
+    config["accounts"] = accounts
+    
+    # If this was the default account, update default
+    if config.get("default_account") == account_name:
+        if accounts:
+            config["default_account"] = accounts[0]
+        else:
+            config["default_account"] = None
+    
+    save_shared_config(config)
+    
+    # Delete the token file
+    token_path = get_unified_token_path(account_name)
+    if token_path.exists():
+        token_path.unlink()
+    
+    # Also check for legacy token files
+    legacy_gmail = GOOGLE_TOKENS_DIR / f"gmail_{account_name}.json"
+    legacy_calendar = GOOGLE_TOKENS_DIR / f"calendar_{account_name}.json"
+    for legacy_path in [legacy_gmail, legacy_calendar]:
+        if legacy_path.exists():
+            legacy_path.unlink()
+    
+    return True
+
+
+def set_account_alias(alias, account_email):
+    """
+    Set an alias for an account.
+    
+    Args:
+        alias: Short alias name (e.g., 'work', 'personal')
+        account_email: The actual account email to alias
+        
+    Returns:
+        True if alias was set successfully
+    """
+    config = get_shared_config()
+    accounts = config.get("accounts", [])
+    
+    # Verify the account exists
+    if account_email not in accounts:
+        return False
+    
+    # Initialize aliases dict if needed
+    if "aliases" not in config:
+        config["aliases"] = {}
+    
+    config["aliases"][alias] = account_email
+    save_shared_config(config)
+    return True
+
+
+def remove_account_alias(alias):
+    """
+    Remove an alias.
+    
+    Args:
+        alias: Alias to remove
+        
+    Returns:
+        True if alias was removed, False if it didn't exist
+    """
+    config = get_shared_config()
+    aliases = config.get("aliases", {})
+    
+    if alias not in aliases:
+        return False
+    
+    del aliases[alias]
+    config["aliases"] = aliases
+    save_shared_config(config)
+    return True
+
+
+def get_account_aliases():
+    """
+    Get all account aliases.
+    
+    Returns:
+        Dict mapping alias -> account_email
+    """
+    config = get_shared_config()
+    return config.get("aliases", {})
+
+
+def resolve_account(account_or_alias):
+    """
+    Resolve an account name or alias to the actual account email.
+    
+    Args:
+        account_or_alias: Account email or alias
+        
+    Returns:
+        The actual account email, or the input if not an alias
+    """
+    if account_or_alias is None:
+        return None
+    
+    config = get_shared_config()
+    aliases = config.get("aliases", {})
+    
+    # Check if it's an alias
+    if account_or_alias in aliases:
+        return aliases[account_or_alias]
+    
+    return account_or_alias
+
+
 def get_unified_token_path(account=None):
     """
     Get the path to the unified token file for a specific account.
