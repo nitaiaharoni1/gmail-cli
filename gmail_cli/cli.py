@@ -8,6 +8,10 @@ import os
 from .auth import authenticate, get_credentials, check_auth
 from .api import GmailAPI
 from .utils import format_email_address, format_date, list_accounts, remove_account, get_default_account, set_default_account, get_token_path, set_account_alias, remove_account_alias, get_account_aliases, resolve_account
+from .contacts import (
+    add_contact, remove_contact, get_contact, list_contacts, find_contacts,
+    update_contact, add_group, remove_group, list_groups, resolve_contacts as resolve_contact_names
+)
 from .shared_auth import check_token_health, refresh_token
 from .config import get_preference, set_preference
 from .templates import list_templates, get_template, create_template, delete_template, render_template
@@ -15,7 +19,7 @@ from .history import add_operation, get_recent_operations, get_last_undoable_ope
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
-@click.version_option(version="1.3.0")
+@click.version_option(version="1.4.0")
 @click.option("--account", "-a", help="Account name to use (default: current default account or GMAIL_ACCOUNT env var)")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
 @click.pass_context
@@ -242,6 +246,259 @@ def use(account_name):
         click.echo(f"✅ Default account set to: {resolved} (via alias '{account_name}')")
     else:
         click.echo(f"✅ Default account set to: {resolved}")
+
+
+@cli.group()
+def contacts():
+    """Manage local contacts."""
+    pass
+
+
+@contacts.command(name="add")
+@click.argument("email")
+@click.option("--name", "-n", required=True, help="Contact name")
+@click.option("--description", "-d", default="", help="Contact description")
+@click.option("--groups", help="Comma-separated list of groups (e.g., 'work,team')")
+def add_contact_cmd(email, name, description, groups):
+    """Add a contact to your local contacts list.
+    
+    Examples:
+        gmail contacts add nitai@example.com --name "Nitai Aharoni" --description "Team lead" --groups "work,team"
+    """
+    group_list = [g.strip() for g in groups.split(",")] if groups else []
+    
+    if add_contact(email, name, description, group_list):
+        click.echo(f"✅ Contact added: {name} ({email})")
+        if group_list:
+            click.echo(f"   Groups: {', '.join(group_list)}")
+    else:
+        click.echo(f"❌ Failed to add contact.", err=True)
+        sys.exit(1)
+
+
+@contacts.command(name="add-batch")
+@click.argument("emails", nargs=-1, required=True)
+@click.option("--names", help="Comma-separated names (one per email)")
+@click.option("--descriptions", help="Comma-separated descriptions (one per email)")
+@click.option("--groups", help="Comma-separated groups to add all contacts to")
+def add_batch_contact_cmd(emails, names, descriptions, groups):
+    """Add multiple contacts at once.
+    
+    Examples:
+        gmail contacts add-batch email1@example.com email2@example.com --names "Name1,Name2" --groups "work,team"
+    """
+    name_list = [n.strip() for n in names.split(",")] if names else []
+    desc_list = [d.strip() for d in descriptions.split(",")] if descriptions else []
+    group_list = [g.strip() for g in groups.split(",")] if groups else []
+    
+    if len(name_list) > len(emails):
+        click.echo(f"❌ Error: Too many names provided ({len(name_list)} names for {len(emails)} emails)", err=True)
+        sys.exit(1)
+    
+    if len(desc_list) > len(emails):
+        click.echo(f"❌ Error: Too many descriptions provided ({len(desc_list)} descriptions for {len(emails)} emails)", err=True)
+        sys.exit(1)
+    
+    added = 0
+    for i, email in enumerate(emails):
+        contact_name = name_list[i] if i < len(name_list) else email.split("@")[0]
+        contact_desc = desc_list[i] if i < len(desc_list) else ""
+        
+        if add_contact(email, contact_name, contact_desc, group_list):
+            added += 1
+    
+    click.echo(f"✅ Added {added}/{len(emails)} contacts")
+
+
+@contacts.command(name="remove")
+@click.argument("email")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+def remove_contact_cmd(email, force):
+    """Remove a contact from your local contacts list.
+    
+    Examples:
+        gmail contacts remove nitai@example.com
+        gmail contacts remove nitai@example.com --force
+    """
+    contact = get_contact(email)
+    if not contact:
+        click.echo(f"❌ Contact '{email}' not found.", err=True)
+        sys.exit(1)
+    
+    if not force:
+        if not click.confirm(f"Remove contact '{contact['name']}' ({email})?"):
+            click.echo("Cancelled.")
+            return
+    
+    if remove_contact(email):
+        click.echo(f"✅ Contact removed: {contact['name']} ({email})")
+    else:
+        click.echo(f"❌ Failed to remove contact.", err=True)
+        sys.exit(1)
+
+
+@contacts.command(name="remove-batch")
+@click.argument("emails", nargs=-1, required=True)
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+def remove_batch_contact_cmd(emails, force):
+    """Remove multiple contacts at once.
+    
+    Examples:
+        gmail contacts remove-batch email1@example.com email2@example.com --force
+    """
+    if not force:
+        if not click.confirm(f"Remove {len(emails)} contact(s)?"):
+            click.echo("Cancelled.")
+            return
+    
+    removed = 0
+    for email in emails:
+        if remove_contact(email):
+            removed += 1
+    
+    click.echo(f"✅ Removed {removed}/{len(emails)} contacts")
+
+
+@contacts.command(name="list")
+@click.option("--group", "-g", help="Filter by group")
+def list_contacts_cmd(group):
+    """List all contacts, optionally filtered by group.
+    
+    Examples:
+        gmail contacts list
+        gmail contacts list --group work
+    """
+    contacts_list = list_contacts(group)
+    
+    if not contacts_list:
+        if group:
+            click.echo(f"No contacts found in group '{group}'.")
+        else:
+            click.echo("No contacts found. Use 'gmail contacts add' to add contacts.")
+        return
+    
+    if group:
+        click.echo(f"Contacts in group '{group}' ({len(contacts_list)}):\n")
+    else:
+        click.echo(f"All contacts ({len(contacts_list)}):\n")
+    
+    for contact in contacts_list:
+        groups_str = f" [{', '.join(contact['groups'])}]" if contact.get('groups') else ""
+        desc_str = f" - {contact['description']}" if contact.get('description') else ""
+        click.echo(f"  • {contact['name']} <{contact['email']}>{groups_str}{desc_str}")
+
+
+@contacts.command(name="find")
+@click.argument("query")
+def find_contacts_cmd(query):
+    """Search contacts by name, email, or description.
+    
+    Examples:
+        gmail contacts find nitai
+        gmail contacts find @example.com
+    """
+    results = find_contacts(query)
+    
+    if not results:
+        click.echo(f"No contacts found matching '{query}'.")
+        return
+    
+    click.echo(f"Found {len(results)} contact(s) matching '{query}':\n")
+    
+    for contact in results:
+        groups_str = f" [{', '.join(contact['groups'])}]" if contact.get('groups') else ""
+        desc_str = f" - {contact['description']}" if contact.get('description') else ""
+        click.echo(f"  • {contact['name']} <{contact['email']}>{groups_str}{desc_str}")
+
+
+@contacts.command(name="update")
+@click.argument("email")
+@click.option("--name", "-n", help="Update contact name")
+@click.option("--description", "-d", help="Update contact description")
+@click.option("--groups", help="Comma-separated groups (replaces existing)")
+def update_contact_cmd(email, name, description, groups):
+    """Update contact details.
+    
+    Examples:
+        gmail contacts update nitai@example.com --name "New Name"
+        gmail contacts update nitai@example.com --groups "work,team"
+    """
+    contact = get_contact(email)
+    if not contact:
+        click.echo(f"❌ Contact '{email}' not found.", err=True)
+        sys.exit(1)
+    
+    group_list = [g.strip() for g in groups.split(",")] if groups else None
+    
+    if update_contact(email, name, description, group_list):
+        click.echo(f"✅ Contact updated: {email}")
+        updated_contact = get_contact(email)
+        if updated_contact:
+            groups_str = f" [{', '.join(updated_contact['groups'])}]" if updated_contact.get('groups') else ""
+            desc_str = f" - {updated_contact['description']}" if updated_contact.get('description') else ""
+            click.echo(f"   {updated_contact['name']} <{updated_contact['email']}>{groups_str}{desc_str}")
+    else:
+        click.echo(f"❌ Failed to update contact.", err=True)
+        sys.exit(1)
+
+
+@contacts.command(name="groups")
+def list_groups_cmd():
+    """List all contact groups.
+    
+    Examples:
+        gmail contacts groups
+    """
+    groups_list = list_groups()
+    
+    if not groups_list:
+        click.echo("No groups defined. Use 'gmail contacts group-add' to create groups.")
+        return
+    
+    click.echo(f"Contact groups ({len(groups_list)}):\n")
+    for group in groups_list:
+        # Count contacts in this group
+        contacts_in_group = list_contacts(group)
+        click.echo(f"  • {group} ({len(contacts_in_group)} contact(s))")
+
+
+@contacts.command(name="group-add")
+@click.argument("group_name")
+def add_group_cmd(group_name):
+    """Create a new contact group.
+    
+    Examples:
+        gmail contacts group-add work
+    """
+    if add_group(group_name):
+        click.echo(f"✅ Group '{group_name}' created.")
+    else:
+        click.echo(f"⚠️  Group '{group_name}' already exists.")
+
+
+@contacts.command(name="group-remove")
+@click.argument("group_name")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+def remove_group_cmd(group_name, force):
+    """Remove a contact group (contacts keep their groups, but group is removed from list).
+    
+    Examples:
+        gmail contacts group-remove work --force
+    """
+    contacts_in_group = list_contacts(group_name)
+    
+    if not force and contacts_in_group:
+        if not click.confirm(f"Remove group '{group_name}'? This will remove the group from {len(contacts_in_group)} contact(s)."):
+            click.echo("Cancelled.")
+            return
+    
+    if remove_group(group_name):
+        click.echo(f"✅ Group '{group_name}' removed.")
+        if contacts_in_group:
+            click.echo(f"   Removed group from {len(contacts_in_group)} contact(s).")
+    else:
+        click.echo(f"❌ Group '{group_name}' not found.", err=True)
+        sys.exit(1)
 
 
 @cli.group()
