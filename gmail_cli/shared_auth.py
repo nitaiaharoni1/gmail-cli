@@ -6,7 +6,6 @@ from pathlib import Path
 from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 
 
 # Shared config directory structure
@@ -403,12 +402,6 @@ def migrate_tokens_to_unified(account=None):
         with open(unified_token_path, "w") as token_file:
             token_file.write(unified_creds.to_json())
         ensure_token_permissions(unified_token_path)
-        
-        # Optionally remove old tokens (commented out for safety - user can clean up later)
-        # if gmail_token_path.exists():
-        #     gmail_token_path.unlink()
-        # if calendar_token_path.exists():
-        #     calendar_token_path.unlink()
         
         return True
     
