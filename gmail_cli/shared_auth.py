@@ -15,6 +15,18 @@ GOOGLE_CONFIG_FILE = GOOGLE_CONFIG_DIR / "config.json"
 GOOGLE_CREDENTIALS_FILE = GOOGLE_CONFIG_DIR / "credentials.json"
 GOOGLE_TOKENS_DIR = GOOGLE_CONFIG_DIR / "tokens"
 
+# All Google CLI scopes (Gmail + Calendar) for unified authentication
+ALL_SCOPES = [
+    # Gmail scopes
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    # Calendar scopes
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+]
+
 
 def ensure_google_config_dir():
     """Ensure the .google config directory exists."""
@@ -112,22 +124,51 @@ def list_accounts():
     return config.get("accounts", [])
 
 
+def get_unified_token_path(account=None):
+    """
+    Get the path to the unified token file for a specific account.
+    Unified tokens contain all scopes (Gmail + Calendar).
+    
+    Args:
+        account: Account name (optional). If None, uses default account.
+    
+    Returns:
+        Path to unified token file
+    """
+    if account is None:
+        account = get_default_account()
+    
+    ensure_google_config_dir()
+    
+    if account:
+        return GOOGLE_TOKENS_DIR / f"google_{account}.json"
+    else:
+        return GOOGLE_TOKENS_DIR / "google_default.json"
+
+
 def get_token_path(account=None, service_name="gmail"):
     """
     Get the path to the token file for a specific account.
+    Checks for unified token first, then falls back to service-specific token.
     
     Args:
         account: Account name (optional). If None, uses default account.
         service_name: Service name (e.g., 'gmail', 'calendar')
     
     Returns:
-        Path to token file
+        Path to token file (unified or service-specific)
     """
     if account is None:
         account = get_default_account(service_name)
     
     ensure_google_config_dir()
     
+    # Check for unified token first
+    unified_path = get_unified_token_path(account)
+    if unified_path.exists():
+        return unified_path
+    
+    # Fall back to service-specific token
     if account:
         return GOOGLE_TOKENS_DIR / f"{service_name}_{account}.json"
     else:
@@ -166,6 +207,7 @@ def ensure_token_permissions(token_path):
 def check_token_health(account=None, service_name="gmail", required_scopes=None):
     """
     Check token status and validity.
+    Checks unified token first, then service-specific token.
     
     Args:
         account: Account name (optional)
@@ -175,7 +217,9 @@ def check_token_health(account=None, service_name="gmail", required_scopes=None)
     Returns:
         Dict with status information
     """
-    token_path = get_token_path(account, service_name)
+    # Check unified token first
+    unified_path = get_unified_token_path(account)
+    token_path = unified_path if unified_path.exists() else get_token_path(account, service_name)
     
     if not token_path.exists():
         return {
@@ -188,15 +232,32 @@ def check_token_health(account=None, service_name="gmail", required_scopes=None)
     try:
         creds = Credentials.from_authorized_user_file(str(token_path), required_scopes or [])
         
-        # Check if scopes match current requirements
-        if required_scopes and set(creds.scopes or []) != set(required_scopes):
-            return {
-                "status": "scope_mismatch",
-                "current_scopes": list(creds.scopes or []),
-                "required_scopes": required_scopes,
-                "message": "Token scopes don't match. Re-auth required.",
-                "account": account
-            }
+        # For unified tokens, check if required scopes are subset of token scopes
+        # For service-specific tokens, check exact match
+        is_unified = unified_path.exists() and token_path == unified_path
+        if required_scopes:
+            if is_unified:
+                # Unified token should contain all required scopes
+                token_scopes = set(creds.scopes or [])
+                required_set = set(required_scopes)
+                if not required_set.issubset(token_scopes):
+                    return {
+                        "status": "scope_mismatch",
+                        "current_scopes": list(creds.scopes or []),
+                        "required_scopes": required_scopes,
+                        "message": "Token scopes don't match. Re-auth required.",
+                        "account": account
+                    }
+            else:
+                # Service-specific token must match exactly
+                if set(creds.scopes or []) != set(required_scopes):
+                    return {
+                        "status": "scope_mismatch",
+                        "current_scopes": list(creds.scopes or []),
+                        "required_scopes": required_scopes,
+                        "message": "Token scopes don't match. Re-auth required.",
+                        "account": account
+                    }
         
         # Check expiry
         if creds.expired:
@@ -219,7 +280,8 @@ def check_token_health(account=None, service_name="gmail", required_scopes=None)
         return {
             "status": "valid",
             "expires_in": expires_in,
-            "account": account
+            "account": account,
+            "is_unified": is_unified
         }
     
     except Exception as e:
@@ -233,6 +295,7 @@ def check_token_health(account=None, service_name="gmail", required_scopes=None)
 def refresh_token(account=None, service_name="gmail", required_scopes=None):
     """
     Refresh an expired token.
+    Checks unified token first, then service-specific token.
     
     Args:
         account: Account name (optional)
@@ -242,7 +305,9 @@ def refresh_token(account=None, service_name="gmail", required_scopes=None):
     Returns:
         Credentials object or None
     """
-    token_path = get_token_path(account, service_name)
+    # Check unified token first
+    unified_path = get_unified_token_path(account)
+    token_path = unified_path if unified_path.exists() else get_token_path(account, service_name)
     
     if not token_path.exists():
         return None
@@ -265,4 +330,84 @@ def refresh_token(account=None, service_name="gmail", required_scopes=None):
         return None
     
     return None
+
+
+def migrate_tokens_to_unified(account=None):
+    """
+    Migrate existing service-specific tokens to unified token format.
+    Combines Gmail and Calendar tokens into a single unified token.
+    
+    Args:
+        account: Account name (optional). If None, uses default account.
+    
+    Returns:
+        True if migration successful, False otherwise
+    """
+    if account is None:
+        account = get_default_account()
+    
+    if not account:
+        return False
+    
+    ensure_google_config_dir()
+    
+    gmail_token_path = GOOGLE_TOKENS_DIR / f"gmail_{account}.json"
+    calendar_token_path = GOOGLE_TOKENS_DIR / f"calendar_{account}.json"
+    unified_token_path = get_unified_token_path(account)
+    
+    # If unified token already exists, skip migration
+    if unified_token_path.exists():
+        return True
+    
+    # Try to load and merge tokens
+    gmail_creds = None
+    calendar_creds = None
+    
+    if gmail_token_path.exists():
+        try:
+            gmail_creds = Credentials.from_authorized_user_file(str(gmail_token_path), [])
+        except:
+            pass
+    
+    if calendar_token_path.exists():
+        try:
+            calendar_creds = Credentials.from_authorized_user_file(str(calendar_token_path), [])
+        except:
+            pass
+    
+    # Prefer the token with more scopes or refresh token
+    unified_creds = None
+    if gmail_creds and calendar_creds:
+        # Merge: use Gmail token as base (usually has more scopes)
+        unified_creds = gmail_creds
+        # Ensure all scopes are included
+        all_scopes = set((gmail_creds.scopes or []) + (calendar_creds.scopes or []))
+        unified_creds = Credentials(
+            token=unified_creds.token,
+            refresh_token=unified_creds.refresh_token or calendar_creds.refresh_token,
+            token_uri=unified_creds.token_uri,
+            client_id=unified_creds.client_id,
+            client_secret=unified_creds.client_secret,
+            scopes=list(all_scopes)
+        )
+    elif gmail_creds:
+        unified_creds = gmail_creds
+    elif calendar_creds:
+        unified_creds = calendar_creds
+    
+    if unified_creds:
+        # Save unified token
+        with open(unified_token_path, "w") as token_file:
+            token_file.write(unified_creds.to_json())
+        ensure_token_permissions(unified_token_path)
+        
+        # Optionally remove old tokens (commented out for safety - user can clean up later)
+        # if gmail_token_path.exists():
+        #     gmail_token_path.unlink()
+        # if calendar_token_path.exists():
+        #     calendar_token_path.unlink()
+        
+        return True
+    
+    return False
 

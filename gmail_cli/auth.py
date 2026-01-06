@@ -7,7 +7,10 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from .utils import get_token_path, get_credentials_path, ensure_token_permissions
-from .shared_auth import check_token_health, refresh_token
+from .shared_auth import (
+    check_token_health, refresh_token, ALL_SCOPES, 
+    get_unified_token_path, migrate_tokens_to_unified
+)
 
 
 # Gmail API scopes
@@ -22,6 +25,7 @@ SCOPES = [
 def get_credentials(account=None):
     """
     Get valid user credentials from storage or run OAuth flow.
+    Checks unified token first, then falls back to service-specific token.
     
     Args:
         account: Account name (optional). If None, uses default account.
@@ -30,8 +34,11 @@ def get_credentials(account=None):
         Credentials object, or None if authentication failed.
     """
     from .utils import get_token_path
-    token_path = get_token_path(account)
     creds = None
+    
+    # Check for unified token first
+    unified_path = get_unified_token_path(account)
+    token_path = unified_path if unified_path.exists() else get_token_path(account)
     
     # Check token health first
     health = check_token_health(account, "gmail", SCOPES)
@@ -45,6 +52,8 @@ def get_credentials(account=None):
     # Load existing token if available
     if token_path.exists():
         try:
+            # For unified tokens, use SCOPES as required scopes (will extract subset)
+            # For service-specific tokens, use SCOPES as exact match
             creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
         except Exception as e:
             print(f"Warning: Could not load existing token: {e}")
@@ -75,6 +84,7 @@ def get_credentials(account=None):
 def authenticate(account=None):
     """
     Run OAuth 2.0 flow to get user credentials.
+    Requests all scopes (Gmail + Calendar) and saves to unified token.
     
     Args:
         account: Account name (optional). If provided, saves token for this account.
@@ -82,7 +92,12 @@ def authenticate(account=None):
     Returns:
         Credentials object on success, None on failure.
     """
-    from .utils import get_credentials_path, get_token_path, set_default_account
+    from .utils import get_credentials_path, set_default_account
+    
+    # Try to migrate existing tokens first
+    if migrate_tokens_to_unified(account):
+        print("ℹ️  Migrated existing tokens to unified format.")
+    
     credentials_path = get_credentials_path()
     
     if not credentials_path:
@@ -90,16 +105,18 @@ def authenticate(account=None):
         print("\nPlease download credentials.json from Google Cloud Console:")
         print("1. Go to https://console.cloud.google.com/")
         print("2. Create/select a project")
-        print("3. Enable Gmail API")
+        print("3. Enable Gmail API and Calendar API")
         print("4. Go to 'Credentials' → 'Create Credentials' → 'OAuth client ID'")
         print("5. Choose 'Desktop app' as application type")
         print("6. Download the JSON file and save it as 'credentials.json'")
-        print("7. Place it in the current directory or your home directory")
+        print("7. Place it in ~/.google/credentials.json")
         return None
     
     try:
+        # Request all scopes for unified authentication
+        print("🔐 Authenticating with Gmail + Calendar scopes...")
         flow = InstalledAppFlow.from_client_secrets_file(
-            str(credentials_path), SCOPES
+            str(credentials_path), ALL_SCOPES
         )
         creds = flow.run_local_server(port=0)
         
@@ -110,17 +127,35 @@ def authenticate(account=None):
             profile = temp_service.users().getProfile(userId="me").execute()
             account = profile.get("emailAddress", "default")
         
-        # Save credentials for next run
-        token_path = get_token_path(account)
-        with open(token_path, "w") as token_file:
+        # Save credentials to unified token file
+        unified_token_path = get_unified_token_path(account)
+        with open(unified_token_path, "w") as token_file:
             token_file.write(creds.to_json())
         
-        ensure_token_permissions(token_path)
+        ensure_token_permissions(unified_token_path)
         
         # Set as default account if it's the first one
         set_default_account(account)
         
-        print("✅ Authentication successful! Token saved.")
+        # Determine which services are enabled based on scopes
+        enabled_services = []
+        token_scopes = set(creds.scopes or [])
+        gmail_scopes = set(SCOPES)
+        calendar_scopes = {
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/calendar.events"
+        }
+        
+        if gmail_scopes.issubset(token_scopes):
+            enabled_services.append("Gmail")
+        if calendar_scopes.issubset(token_scopes):
+            enabled_services.append("Calendar")
+        
+        services_text = ", ".join(enabled_services) if enabled_services else "Gmail"
+        
+        print(f"✅ Authentication successful! Token saved.")
+        print(f"✅ Authenticated as: {account}")
+        print(f"✅ Services enabled: {services_text}")
         return creds
     
     except Exception as e:
