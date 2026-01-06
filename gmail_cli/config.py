@@ -18,6 +18,8 @@ def ensure_preferences_file():
             "default_output_format": "table",
             "default_max_results": 10,
             "timezone": "UTC",
+            "user_email": None,
+            "language": "en",
             "verbose": False
         }
         # Write directly to avoid recursion
@@ -58,6 +60,8 @@ def get_default_preferences():
         "default_output_format": "table",
         "default_max_results": 10,
         "timezone": "UTC",
+        "user_email": None,
+        "language": "en",
         "verbose": False
     }
 

@@ -41,6 +41,15 @@ class GmailAPI:
             raise Exception(f"Failed to get profile: {error}")
     
     @with_retry()
+    def get_language_setting(self):
+        """Get user's language setting."""
+        try:
+            result = self.service.users().settings().getLanguage(userId=self.user_id).execute()
+            return result.get('displayLanguage', 'en')
+        except HttpError:
+            return 'en'
+    
+    @with_retry()
     def list_messages(self, max_results=10, label_ids=None, query=None):
         """
         List messages from the user's mailbox.

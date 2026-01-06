@@ -15,7 +15,7 @@ from .history import add_operation, get_recent_operations, get_last_undoable_ope
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
-@click.version_option(version="1.2.1")
+@click.version_option(version="1.2.2")
 @click.option("--account", "-a", help="Account name to use (default: current default account or GMAIL_ACCOUNT env var)")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
 @click.pass_context
@@ -88,6 +88,15 @@ def init(account):
             api = GmailAPI(account)
             profile = api.get_profile()
             email = profile.get('emailAddress', 'Unknown')
+            
+            # Cache user settings
+            set_preference('user_email', email)
+            try:
+                language = api.get_language_setting()
+                set_preference('language', language)
+            except:
+                pass  # Optional setting, don't fail if unavailable
+            
             click.echo(f"✅ Authenticated as: {email}")
             
             # Show account name if different from email
