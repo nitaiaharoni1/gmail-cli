@@ -7,6 +7,7 @@ import logging
 import os
 from .auth import authenticate, get_credentials, check_auth
 from .api import GmailAPI
+from .people import PeopleAPI
 from .utils import format_email_address, format_date, list_accounts, get_default_account, set_default_account, get_token_path
 from .shared_auth import check_token_health, refresh_token
 from .config import get_preference, set_preference
@@ -15,7 +16,7 @@ from .history import add_operation, get_recent_operations, get_last_undoable_ope
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
-@click.version_option(version="1.1.2")
+@click.version_option(version="1.2.0")
 @click.option("--account", "-a", help="Account name to use (default: current default account or GMAIL_ACCOUNT env var)")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
 @click.pass_context
@@ -1745,6 +1746,45 @@ def undo(ctx, account):
     
     except Exception as e:
         click.echo(f"❌ Error undoing operation: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--search", "-s", help="Search contacts by name or email")
+@click.option("--max", "-m", default=50, type=int, help="Maximum number of contacts to show (default: 50)")
+@_account_option
+@click.pass_context
+def contacts(ctx, search, max, account):
+    """List contacts from Google Contacts."""
+    account = account or ctx.obj.get("ACCOUNT")
+    
+    try:
+        people_api = PeopleAPI(account)
+        
+        if search:
+            click.echo(f"Searching contacts for '{search}'...\n")
+            contacts_list = people_api.search_contacts(search, max_results=max)
+        else:
+            click.echo("Listing contacts...\n")
+            contacts_list = people_api.list_contacts(max_results=max)
+        
+        if not contacts_list:
+            click.echo("No contacts found.")
+            return
+        
+        click.echo(f"Found {len(contacts_list)} contact(s):\n")
+        
+        for contact in contacts_list:
+            name = contact.get('name', 'Unknown')
+            email = contact.get('email', 'No email')
+            click.echo(f"  • {name}")
+            click.echo(f"    {email}")
+            click.echo()
+    
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        click.echo("   Note: Make sure you've authenticated with People API scope.")
+        click.echo("   Run 'gmail init' to re-authenticate.")
         sys.exit(1)
 
 

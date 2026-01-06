@@ -14,7 +14,7 @@ GOOGLE_CONFIG_FILE = GOOGLE_CONFIG_DIR / "config.json"
 GOOGLE_CREDENTIALS_FILE = GOOGLE_CONFIG_DIR / "credentials.json"
 GOOGLE_TOKENS_DIR = GOOGLE_CONFIG_DIR / "tokens"
 
-# All Google CLI scopes (Gmail + Calendar) for unified authentication
+# All Google CLI scopes (Gmail + Calendar + People) for unified authentication
 ALL_SCOPES = [
     # Gmail scopes
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -24,6 +24,8 @@ ALL_SCOPES = [
     # Calendar scopes
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events",
+    # People API scope (for contacts)
+    "https://www.googleapis.com/auth/contacts.readonly",
 ]
 
 
