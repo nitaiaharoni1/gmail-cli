@@ -57,16 +57,22 @@ def save_shared_config(config):
 def get_default_account(service_name=None):
     """
     Get the default account name.
+    Uses unified global default account for both Gmail and Calendar.
     
     Args:
         service_name: Optional service name (e.g., 'gmail', 'calendar')
-                     to get service-specific default
+                     Used only for environment variable lookup
     
     Returns:
         Account name or None
     """
-    # Check environment variable first
-    env_var = os.getenv("GMAIL_ACCOUNT") if service_name == "gmail" else os.getenv("GOOGLE_CALENDAR_ACCOUNT")
+    # Check environment variable first (service-specific override)
+    if service_name == "gmail":
+        env_var = os.getenv("GMAIL_ACCOUNT")
+    elif service_name == "calendar":
+        env_var = os.getenv("GOOGLE_CALENDAR_ACCOUNT")
+    else:
+        env_var = None
     if env_var:
         return env_var
     
@@ -83,31 +89,31 @@ def get_default_account(service_name=None):
             except:
                 pass
     
-    # Check shared config
+    # Use unified global default account (ignores service-specific defaults)
     config = get_shared_config()
-    if service_name:
-        service_key = f"{service_name}_default_account"
-        if service_key in config:
-            return config[service_key]
-    
     return config.get("default_account")
 
 
 def set_default_account(account_name, service_name=None):
     """
     Set the default account name.
+    Sets unified global default account for both Gmail and Calendar.
     
     Args:
         account_name: Account name to set as default
-        service_name: Optional service name for service-specific default
+        service_name: Optional service name (deprecated - kept for backward compatibility)
     """
     config = get_shared_config()
     
-    if service_name:
-        service_key = f"{service_name}_default_account"
-        config[service_key] = account_name
-    
+    # Set unified global default account
     config["default_account"] = account_name
+    
+    # Remove any service-specific defaults to ensure unified behavior
+    # (optional cleanup - these are no longer used but kept for migration)
+    if "gmail_default_account" in config:
+        del config["gmail_default_account"]
+    if "calendar_default_account" in config:
+        del config["calendar_default_account"]
     
     # Ensure account is in accounts list
     if "accounts" not in config:
