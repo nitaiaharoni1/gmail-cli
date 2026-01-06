@@ -94,22 +94,19 @@ def get_default_account(service_name=None):
     return config.get("default_account")
 
 
-def set_default_account(account_name, service_name=None):
+def set_default_account(account_name):
     """
-    Set the default account name.
-    Sets unified global default account for both Gmail and Calendar.
+    Set the unified default account name for both Gmail and Calendar.
     
     Args:
         account_name: Account name to set as default
-        service_name: Optional service name (deprecated - kept for backward compatibility)
     """
     config = get_shared_config()
     
     # Set unified global default account
     config["default_account"] = account_name
     
-    # Remove any service-specific defaults to ensure unified behavior
-    # (optional cleanup - these are no longer used but kept for migration)
+    # Remove any service-specific defaults (cleanup from old configs)
     if "gmail_default_account" in config:
         del config["gmail_default_account"]
     if "calendar_default_account" in config:

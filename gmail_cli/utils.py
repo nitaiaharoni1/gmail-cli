@@ -20,7 +20,7 @@ def get_default_account():
 
 def set_default_account(account_name):
     """Set the default account name."""
-    _set_default_account(account_name, "gmail")
+    _set_default_account(account_name)
 
 
 def list_accounts():
