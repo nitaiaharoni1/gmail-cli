@@ -27,6 +27,7 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=[
+        "google-auth-core>=0.1.0",
         "google-api-python-client>=2.0.0",
         "google-auth-httplib2>=0.1.0",
         "google-auth-oauthlib>=0.5.0",
