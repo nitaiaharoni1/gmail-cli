@@ -511,22 +511,23 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get label: {error}")
     
-    def create_draft(self, to, subject, body, attachments=None):
+    def create_draft(self, to, subject, body, attachments=None, cc=None):
         """
         Create a draft message.
-        
+
         Args:
             to: Recipient email address
             subject: Email subject
             body: Email body (plain text)
             attachments: List of file paths to attach (optional)
+            cc: CC recipient(s) (optional)
         """
         try:
             if attachments:
-                message = self._create_message_with_attachments(to, subject, body, attachments)
+                message = self._create_message_with_attachments(to, subject, body, attachments, cc)
             else:
-                message = self._create_message(to, subject, body)
-            
+                message = self._create_message(to, subject, body, cc)
+
             draft = (
                 self.service.users()
                 .drafts()
@@ -564,23 +565,56 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get draft: {error}")
     
-    def update_draft(self, draft_id, to, subject, body, attachments=None):
+    def update_draft(self, draft_id, to=None, subject=None, body=None, attachments=None, cc=None):
         """
-        Update a draft message.
-        
+        Update a draft, preserving existing fields you don't override.
+
+        Only the arguments you pass change. To/Subject/Body/Cc and existing
+        attachments are read from the current draft and kept otherwise (so
+        e.g. passing only `attachments` adds a file without wiping the rest).
+        Pass attachments to replace the file set; omit it to keep existing ones.
+
         Args:
             draft_id: Draft ID to update
-            to: Recipient email address
-            subject: Email subject
-            body: Email body (plain text)
-            attachments: List of file paths to attach (optional)
+            to, subject, body, cc: override these (None = keep existing)
+            attachments: list of file paths (None = keep existing attachments)
         """
         try:
-            if attachments:
-                message = self._create_message_with_attachments(to, subject, body, attachments)
+            existing = self.get_draft(draft_id)
+            emsg = existing.get("message", {})
+            payload = emsg.get("payload", {})
+            headers = payload.get("headers", [])
+
+            def _h(name):
+                return next((h["value"] for h in headers if h["name"].lower() == name.lower()), None)
+
+            to = to if to is not None else (_h("To") or "")
+            subject = subject if subject is not None else (_h("Subject") or "")
+            cc = cc if cc is not None else _h("Cc")
+            if body is None:
+                body = self._extract_plain_body(payload)
+
+            if attachments is not None:
+                specs = list(attachments)  # file paths (replace set)
             else:
-                message = self._create_message(to, subject, body)
-            
+                specs = self._download_message_attachments(emsg.get("id"), payload)  # preserve
+
+            if specs:
+                msg = MIMEMultipart()
+                msg.attach(MIMEText(body, "plain"))
+                for spec in specs:
+                    if isinstance(spec, str):
+                        self._attach_files(msg, [spec])
+                    else:
+                        self._attach_blob(msg, *spec)
+            else:
+                msg = MIMEText(body)
+            msg["to"] = to
+            msg["subject"] = subject
+            if cc:
+                msg["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
+
+            message = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
             draft = (
                 self.service.users()
                 .drafts()
@@ -590,6 +624,54 @@ class GmailAPI:
             return draft
         except HttpError as error:
             raise Exception(f"Failed to update draft: {error}")
+
+    def _extract_plain_body(self, payload):
+        """Return the text/plain body from a message payload (recursively)."""
+        def walk(p):
+            if p.get("mimeType") == "text/plain":
+                data = p.get("body", {}).get("data")
+                if data:
+                    return base64.urlsafe_b64decode(data).decode("utf-8", "replace")
+            for sub in p.get("parts", []) or []:
+                t = walk(sub)
+                if t:
+                    return t
+            return ""
+        return walk(payload or {})
+
+    def _download_message_attachments(self, message_id, payload):
+        """Return a message's attachments as (filename, mimetype, bytes) tuples."""
+        specs = []
+        if not message_id:
+            return specs
+
+        def walk(p):
+            filename = p.get("filename")
+            body = p.get("body", {})
+            if filename and body.get("attachmentId"):
+                att = (
+                    self.service.users().messages().attachments()
+                    .get(userId=self.user_id, messageId=message_id, id=body["attachmentId"])
+                    .execute()
+                )
+                data = base64.urlsafe_b64decode(att.get("data", ""))
+                specs.append((filename, p.get("mimeType", "application/octet-stream"), data))
+            for sub in p.get("parts", []) or []:
+                walk(sub)
+
+        walk(payload or {})
+        return specs
+
+    def _attach_blob(self, message, filename, mimetype, data):
+        """Attach raw bytes as a file part (used to preserve existing attachments)."""
+        maintype, _, subtype = (mimetype or "application/octet-stream").partition("/")
+        if not subtype:
+            maintype, subtype = "application", "octet-stream"
+        part = MIMEBase(maintype, subtype)
+        part.set_payload(data)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+        message.attach(part)
     
     def delete_draft(self, draft_id):
         """Delete a draft."""
