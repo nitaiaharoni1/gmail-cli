@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import os
+import mimetypes
 
 
 class GmailAPI:
@@ -224,22 +225,8 @@ class GmailAPI:
             message["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
         
         message.attach(MIMEText(body, "plain"))
-        
-        for filepath in attachments:
-            if not os.path.exists(filepath):
-                raise Exception(f"Attachment file not found: {filepath}")
-            
-            with open(filepath, "rb") as f:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(f.read())
-            
-            encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition",
-                f'attachment; filename= "{os.path.basename(filepath)}"',
-            )
-            message.attach(part)
-        
+        self._attach_files(message, attachments)
+
         return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
     
     def list_labels(self):
@@ -616,37 +603,66 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to delete draft: {error}")
     
-    def reply_to_message(self, message_id, body, reply_all=False, additional_cc=None):
+    def _attach_files(self, message, attachments):
+        """Attach a list of local file paths to a MIME multipart message.
+
+        Guesses each file's MIME type (per the Gmail API docs) so e.g. a PDF is
+        attached as application/pdf rather than a generic binary blob.
+        """
+        for filepath in attachments or []:
+            if not os.path.exists(filepath):
+                raise Exception(f"Attachment file not found: {filepath}")
+            ctype, encoding = mimetypes.guess_type(filepath)
+            if ctype is None or encoding is not None:
+                ctype = "application/octet-stream"
+            maintype, subtype = ctype.split("/", 1)
+            with open(filepath, "rb") as f:
+                part = MIMEBase(maintype, subtype)
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f'attachment; filename="{os.path.basename(filepath)}"',
+            )
+            message.attach(part)
+
+    def reply_to_message(self, message_id, body, reply_all=False, additional_cc=None, attachments=None):
         """
         Reply to a message.
-        
+
         Args:
             message_id: The message ID to reply to
             body: Reply body text
             reply_all: If True, reply to all recipients
             additional_cc: Additional CC recipient(s) to add
+            attachments: Optional list of local file paths to attach
         """
         try:
             # Get the original message
             original = self.get_message(message_id, format="full")
             headers = original.get("payload", {}).get("headers", [])
-            
+
             # Extract original message details
             from_email = next((h["value"] for h in headers if h["name"] == "From"), "")
             subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
             to_email = next((h["value"] for h in headers if h["name"] == "To"), "")
             cc_email = next((h["value"] for h in headers if h["name"] == "Cc"), "")
-            
+
             # Build reply subject
             reply_subject = subject
             if not reply_subject.startswith("Re: "):
                 reply_subject = f"Re: {reply_subject}"
-            
-            # Create reply message
-            reply = MIMEText(body)
+
+            # Create reply message (multipart only when there are attachments)
+            if attachments:
+                reply = MIMEMultipart()
+                reply.attach(MIMEText(body, "plain"))
+                self._attach_files(reply, attachments)
+            else:
+                reply = MIMEText(body)
             reply["to"] = from_email
             reply["subject"] = reply_subject
-            
+
             # Handle CC recipients
             cc_list = []
             if reply_all and cc_email:
@@ -681,14 +697,15 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to reply to message: {error}")
     
-    def forward_message(self, message_id, to, body=None):
+    def forward_message(self, message_id, to, body=None, attachments=None):
         """
         Forward a message.
-        
+
         Args:
             message_id: The message ID to forward
             to: Recipient email address
             body: Optional forward message body
+            attachments: Optional list of local file paths to attach
         """
         try:
             # Get the original message
@@ -731,8 +748,13 @@ class GmailAPI:
             
             forward_body += original_body
             
-            # Create forward message
-            forward = MIMEText(forward_body)
+            # Create forward message (multipart only when there are attachments)
+            if attachments:
+                forward = MIMEMultipart()
+                forward.attach(MIMEText(forward_body, "plain"))
+                self._attach_files(forward, attachments)
+            else:
+                forward = MIMEText(forward_body)
             forward["to"] = to
             forward["subject"] = forward_subject
             
