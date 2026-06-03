@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import os
+import tempfile
 import mimetypes
 
 
@@ -259,6 +260,25 @@ class GmailAPI:
             return threads
         except HttpError as error:
             raise Exception(f"Failed to list threads: {error}")
+
+    def get_thread(self, thread_id, format="full"):
+        """
+        Get a whole thread (all its messages) by ID.
+
+        Args:
+            thread_id: The thread ID
+            format: Format of the messages (full, metadata, minimal)
+        """
+        try:
+            thread = (
+                self.service.users()
+                .threads()
+                .get(userId=self.user_id, id=thread_id, format=format)
+                .execute()
+            )
+            return thread
+        except HttpError as error:
+            raise Exception(f"Failed to get thread: {error}")
     
     def modify_message(self, message_id, add_label_ids=None, remove_label_ids=None):
         """
@@ -565,6 +585,19 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get draft: {error}")
     
+    def send_draft(self, draft_id):
+        """Send an existing draft as-is (threaded if it was a threaded draft)."""
+        try:
+            result = (
+                self.service.users()
+                .drafts()
+                .send(userId=self.user_id, body={"id": draft_id})
+                .execute()
+            )
+            return result
+        except HttpError as error:
+            raise Exception(f"Failed to send draft: {error}")
+
     def update_draft(self, draft_id, to=None, subject=None, body=None, attachments=None, cc=None):
         """
         Update a draft, preserving existing fields you don't override.
@@ -672,7 +705,75 @@ class GmailAPI:
         encoders.encode_base64(part)
         part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
         message.attach(part)
-    
+
+    def download_attachment(self, message_id, output_dir=None, attachment_id=None):
+        """
+        Save a message's attachment(s) to local disk and return their paths.
+
+        Reuses _download_message_attachments to fetch the bytes, then writes each
+        attachment to output_dir (defaults to the system temp dir; created if
+        needed) using the attachment's own filename. If attachment_id is given,
+        only that attachment is saved.
+
+        Args:
+            message_id: The message ID to pull attachments from
+            output_dir: Directory to write files to (default: system temp dir)
+            attachment_id: Optional attachment ID to restrict to a single file
+
+        Returns:
+            List of dicts: {"filename", "path", "mime_type", "size"}
+        """
+        try:
+            message = self.get_message(message_id, format="full")
+            payload = message.get("payload", {})
+
+            if attachment_id:
+                specs = self._download_attachments_by_id(message_id, payload, attachment_id)
+            else:
+                specs = self._download_message_attachments(message_id, payload)
+
+            out_dir = output_dir or tempfile.gettempdir()
+            os.makedirs(out_dir, exist_ok=True)
+
+            saved = []
+            for filename, mimetype, data in specs:
+                filename = os.path.basename(filename)  # never write outside out_dir
+                path = os.path.join(out_dir, filename)
+                with open(path, "wb") as f:
+                    f.write(data)
+                saved.append({
+                    "filename": filename,
+                    "path": path,
+                    "mime_type": mimetype,
+                    "size": len(data),
+                })
+            return saved
+        except HttpError as error:
+            raise Exception(f"Failed to download attachment: {error}")
+
+    def _download_attachments_by_id(self, message_id, payload, attachment_id):
+        """Return only the attachment matching attachment_id as (filename, mimetype, bytes)."""
+        specs = []
+        if not message_id:
+            return specs
+
+        def walk(p):
+            filename = p.get("filename")
+            body = p.get("body", {})
+            if filename and body.get("attachmentId") == attachment_id:
+                att = (
+                    self.service.users().messages().attachments()
+                    .get(userId=self.user_id, messageId=message_id, id=attachment_id)
+                    .execute()
+                )
+                data = base64.urlsafe_b64decode(att.get("data", ""))
+                specs.append((filename, p.get("mimeType", "application/octet-stream"), data))
+            for sub in p.get("parts", []) or []:
+                walk(sub)
+
+        walk(payload or {})
+        return specs
+
     def delete_draft(self, draft_id):
         """Delete a draft."""
         try:
@@ -682,6 +783,7 @@ class GmailAPI:
                 .delete(userId=self.user_id, id=draft_id)
                 .execute()
             )
+            return {"id": draft_id, "deleted": True}
         except HttpError as error:
             raise Exception(f"Failed to delete draft: {error}")
     
