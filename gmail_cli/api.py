@@ -778,7 +778,80 @@ class GmailAPI:
             return sent_message
         except HttpError as error:
             raise Exception(f"Failed to reply to message: {error}")
-    
+
+    def draft_reply(self, message_id, body, reply_all=False, additional_cc=None, attachments=None):
+        """
+        Create a DRAFT reply that stays in the original thread.
+
+        Identical threading to reply_to_message (In-Reply-To/References headers
+        + threadId) but saves a draft instead of sending, so it can be reviewed
+        in Gmail and sent later while still threading correctly.
+
+        Args:
+            message_id: The message ID to reply to
+            body: Reply body text
+            reply_all: If True, CC the original recipients
+            additional_cc: Additional CC recipient(s) to add
+            attachments: Optional list of local file paths to attach
+        """
+        try:
+            # Get the original message
+            original = self.get_message(message_id, format="full")
+            headers = original.get("payload", {}).get("headers", [])
+
+            # Extract original message details
+            from_email = next((h["value"] for h in headers if h["name"] == "From"), "")
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
+            cc_email = next((h["value"] for h in headers if h["name"] == "Cc"), "")
+
+            # Build reply subject
+            reply_subject = subject
+            if not reply_subject.startswith("Re: "):
+                reply_subject = f"Re: {reply_subject}"
+
+            # Create reply message (multipart only when there are attachments)
+            if attachments:
+                reply = MIMEMultipart()
+                reply.attach(MIMEText(body, "plain"))
+                self._attach_files(reply, attachments)
+            else:
+                reply = MIMEText(body)
+            reply["to"] = from_email
+            reply["subject"] = reply_subject
+
+            # Handle CC recipients
+            cc_list = []
+            if reply_all and cc_email:
+                cc_list.append(cc_email)
+            if additional_cc:
+                cc_list.append(additional_cc)
+            if cc_list:
+                reply["cc"] = ", ".join(cc_list)
+
+            # Set In-Reply-To and References headers for threading
+            message_id_header = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
+            if message_id_header:
+                reply["In-Reply-To"] = message_id_header
+                reply["References"] = message_id_header
+
+            # Get the thread ID from the original message
+            thread_id = original.get("threadId")
+
+            message = {
+                "raw": base64.urlsafe_b64encode(reply.as_bytes()).decode(),
+                "threadId": thread_id,  # keep the draft in the same thread
+            }
+
+            draft = (
+                self.service.users()
+                .drafts()
+                .create(userId=self.user_id, body={"message": message})
+                .execute()
+            )
+            return draft
+        except HttpError as error:
+            raise Exception(f"Failed to create draft reply: {error}")
+
     def forward_message(self, message_id, to, body=None, attachments=None):
         """
         Forward a message.
