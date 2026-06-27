@@ -6,6 +6,8 @@ from .auth import get_credentials, check_auth
 from .utils import format_email_address, format_date
 from .retry import with_retry
 import base64
+import re
+from html import unescape as _html_unescape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -179,24 +181,25 @@ class GmailAPI:
             raise Exception(f"Failed to search with details: {error}")
     
     @with_retry()
-    def send_message(self, to, subject, body, attachments=None, cc=None):
+    def send_message(self, to, subject, body, attachments=None, cc=None, html=False):
         """
         Send an email message.
-        
+
         Args:
             to: Recipient email address
             subject: Email subject
-            body: Email body (plain text)
+            body: Email body (plain text, or HTML when html=True)
             attachments: List of file paths to attach
             cc: CC recipient email address(es) (string or list)
+            html: When True, send body as HTML (with a plain-text fallback)
         """
         try:
             if attachments:
                 message = self._create_message_with_attachments(
-                    to, subject, body, attachments, cc
+                    to, subject, body, attachments, cc, html
                 )
             else:
-                message = self._create_message(to, subject, body, cc)
+                message = self._create_message(to, subject, body, cc, html)
             
             sent_message = (
                 self.service.users()
@@ -208,24 +211,47 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to send message: {error}")
     
-    def _create_message(self, to, subject, body, cc=None):
+    def _html_to_text(self, html_body):
+        """Best-effort plain-text fallback derived from an HTML body."""
+        text = re.sub(r"(?is)<(script|style).*?</\1>", "", html_body)
+        text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+        text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])\s*>", "\n", text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = _html_unescape(text)
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    def _body_part(self, body, html=False):
+        """Build the body MIME part.
+
+        Plain text -> a single text/plain part. HTML -> a multipart/alternative
+        carrying a derived text/plain fallback plus the text/html part, so
+        clients that cannot render HTML still show readable text.
+        """
+        if not html:
+            return MIMEText(body, "plain")
+        alternative = MIMEMultipart("alternative")
+        alternative.attach(MIMEText(self._html_to_text(body), "plain"))
+        alternative.attach(MIMEText(body, "html"))
+        return alternative
+
+    def _create_message(self, to, subject, body, cc=None, html=False):
         """Create a message for sending."""
-        message = MIMEText(body)
+        message = self._body_part(body, html)
         message["to"] = to
         message["subject"] = subject
         if cc:
             message["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
         return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
-    
-    def _create_message_with_attachments(self, to, subject, body, attachments, cc=None):
+
+    def _create_message_with_attachments(self, to, subject, body, attachments, cc=None, html=False):
         """Create a message with attachments."""
         message = MIMEMultipart()
         message["to"] = to
         message["subject"] = subject
         if cc:
             message["cc"] = cc if isinstance(cc, str) else ", ".join(cc)
-        
-        message.attach(MIMEText(body, "plain"))
+
+        message.attach(self._body_part(body, html))
         self._attach_files(message, attachments)
 
         return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
@@ -531,22 +557,23 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to get label: {error}")
     
-    def create_draft(self, to, subject, body, attachments=None, cc=None):
+    def create_draft(self, to, subject, body, attachments=None, cc=None, html=False):
         """
         Create a draft message.
 
         Args:
             to: Recipient email address
             subject: Email subject
-            body: Email body (plain text)
+            body: Email body (plain text, or HTML when html=True)
             attachments: List of file paths to attach (optional)
             cc: CC recipient(s) (optional)
+            html: When True, store body as HTML (with a plain-text fallback)
         """
         try:
             if attachments:
-                message = self._create_message_with_attachments(to, subject, body, attachments, cc)
+                message = self._create_message_with_attachments(to, subject, body, attachments, cc, html)
             else:
-                message = self._create_message(to, subject, body, cc)
+                message = self._create_message(to, subject, body, cc, html)
 
             draft = (
                 self.service.users()
@@ -598,7 +625,7 @@ class GmailAPI:
         except HttpError as error:
             raise Exception(f"Failed to send draft: {error}")
 
-    def update_draft(self, draft_id, to=None, subject=None, body=None, attachments=None, cc=None):
+    def update_draft(self, draft_id, to=None, subject=None, body=None, attachments=None, cc=None, html=False):
         """
         Update a draft, preserving existing fields you don't override.
 
@@ -634,14 +661,14 @@ class GmailAPI:
 
             if specs:
                 msg = MIMEMultipart()
-                msg.attach(MIMEText(body, "plain"))
+                msg.attach(self._body_part(body, html))
                 for spec in specs:
                     if isinstance(spec, str):
                         self._attach_files(msg, [spec])
                     else:
                         self._attach_blob(msg, *spec)
             else:
-                msg = MIMEText(body)
+                msg = self._body_part(body, html)
             msg["to"] = to
             msg["subject"] = subject
             if cc:

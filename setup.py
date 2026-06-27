@@ -6,13 +6,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="gmail-cli",
+    name="gmail-cli-oauth",
     version="1.5.0",
     author="Nitai Aharoni",
-    description="Command-line interface for Gmail",
+    description="OAuth2 command-line interface for Gmail (read, search, send, drafts, labels)",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/nitaiaharoni/gmail-cli",
+    url="https://github.com/nitaiaharoni1/gmail-cli",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
