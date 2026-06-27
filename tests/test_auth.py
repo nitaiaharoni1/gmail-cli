@@ -14,7 +14,9 @@ def test_check_token_health_missing():
 
 def test_get_credentials_no_token():
     """Test getting credentials when no token exists."""
-    with patch("gmail_cli.auth.get_token_path") as mock_path:
+    with patch("gmail_cli.auth.get_unified_token_path") as mock_unified, \
+         patch("gmail_cli.utils.get_token_path") as mock_path:
+        mock_unified.return_value.exists.return_value = False
         mock_path.return_value.exists.return_value = False
         creds = get_credentials()
         assert creds is None
