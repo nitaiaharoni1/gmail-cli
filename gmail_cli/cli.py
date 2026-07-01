@@ -618,7 +618,7 @@ def list_messages(ctx, label, max, query, output, account):
             return
         
         # Fetch full details in batch
-        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")
+        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")["items"]
         
         if not messages:
             if output == "json":
@@ -916,7 +916,7 @@ def search(ctx, query, max, from_, to, subject, has_attachment, label, is_unread
             return
         
         # Fetch full details in batch
-        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")
+        messages = api.search_with_details(max_results=max, label_ids=label_ids, query=query, format="metadata")["items"]
         
         if not messages:
             if output == "json":

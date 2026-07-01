@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="gmail-cli-oauth",
-    version="1.5.0",
+    version="1.6.0",
     author="Nitai Aharoni",
     description="OAuth2 command-line interface for Gmail (read, search, send, drafts, labels)",
     long_description=long_description,

@@ -77,6 +77,25 @@ class GmailAPI:
             return messages
         except HttpError as error:
             raise Exception(f"Failed to list messages: {error}")
+
+    @with_retry()
+    def list_messages_page(self, max_results=10, label_ids=None, query=None, page_token=None):
+        """List messages with pagination cursor."""
+        try:
+            params = {"userId": self.user_id, "maxResults": max_results}
+            if label_ids:
+                params["labelIds"] = label_ids
+            if query:
+                params["q"] = query
+            if page_token:
+                params["pageToken"] = page_token
+            results = self.service.users().messages().list(**params).execute()
+            out = {"items": results.get("messages", [])}
+            if results.get("nextPageToken"):
+                out["nextPageToken"] = results["nextPageToken"]
+            return out
+        except HttpError as error:
+            raise Exception(f"Failed to list messages: {error}")
     
     @with_retry()
     def get_message(self, message_id, format="full"):
@@ -152,31 +171,27 @@ class GmailAPI:
             raise Exception(f"Failed to batch get messages: {error}")
     
     @with_retry()
-    def search_with_details(self, max_results=10, label_ids=None, query=None, format="metadata"):
+    def search_with_details(
+        self, max_results=10, label_ids=None, query=None, format="metadata", page_token=None
+    ):
         """
         Search messages and return full details in batch.
-        
-        Args:
-            max_results: Maximum number of messages to return
-            label_ids: List of label IDs to filter by
-            query: Query string to search for
-            format: Format of the messages (full, metadata, minimal, raw)
-        
-        Returns:
-            List of message dictionaries with full details
+
+        Returns a page dict: {"items": [...], "nextPageToken": ... (optional)}.
         """
         try:
-            # First, get message IDs
-            message_list = self.list_messages(max_results=max_results, label_ids=label_ids, query=query)
-            
+            page = self.list_messages_page(
+                max_results=max_results, label_ids=label_ids, query=query, page_token=page_token
+            )
+            message_list = page.get("items", [])
             if not message_list:
-                return []
-            
-            # Extract IDs
+                return {"items": []}
             message_ids = [msg["id"] for msg in message_list]
-            
-            # Fetch details in batch
-            return self.get_messages_batch(message_ids, format=format)
+            items = self.get_messages_batch(message_ids, format=format)
+            out = {"items": items}
+            if page.get("nextPageToken"):
+                out["nextPageToken"] = page["nextPageToken"]
+            return out
         except HttpError as error:
             raise Exception(f"Failed to search with details: {error}")
     
@@ -284,6 +299,22 @@ class GmailAPI:
             results = self.service.users().threads().list(**params).execute()
             threads = results.get("threads", [])
             return threads
+        except HttpError as error:
+            raise Exception(f"Failed to list threads: {error}")
+
+    def list_threads_page(self, max_results=10, query=None, page_token=None):
+        """List email threads with pagination cursor."""
+        try:
+            params = {"userId": self.user_id, "maxResults": max_results}
+            if query:
+                params["q"] = query
+            if page_token:
+                params["pageToken"] = page_token
+            results = self.service.users().threads().list(**params).execute()
+            out = {"items": results.get("threads", [])}
+            if results.get("nextPageToken"):
+                out["nextPageToken"] = results["nextPageToken"]
+            return out
         except HttpError as error:
             raise Exception(f"Failed to list threads: {error}")
 
@@ -596,6 +627,20 @@ class GmailAPI:
             )
             drafts = results.get("drafts", [])
             return drafts
+        except HttpError as error:
+            raise Exception(f"Failed to list drafts: {error}")
+
+    def list_drafts_page(self, max_results=10, page_token=None):
+        """List draft messages with pagination cursor."""
+        try:
+            params = {"userId": self.user_id, "maxResults": max_results}
+            if page_token:
+                params["pageToken"] = page_token
+            results = self.service.users().drafts().list(**params).execute()
+            out = {"items": results.get("drafts", [])}
+            if results.get("nextPageToken"):
+                out["nextPageToken"] = results["nextPageToken"]
+            return out
         except HttpError as error:
             raise Exception(f"Failed to list drafts: {error}")
     
